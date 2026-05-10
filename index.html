@@ -1,0 +1,2210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Indus Fire Safety | Smart Job Card + Admin</title>
+  <meta name="theme-color" content="#0B0D14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <!-- Supabase (UMD) for best mobile compatibility -->
+  <script defer src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --fire: #FF4500;
+      --fire-soft: rgba(255,69,0,0.12);
+      --fire-glow: rgba(255,69,0,0.25);
+      --bg-base: #0B0D14;
+      --bg-card: #111320;
+      --bg-elevated: #161928;
+      --bg-hover: #1C1F35;
+      --border: rgba(255,255,255,0.07);
+      --border-active: rgba(255,69,0,0.4);
+      --gold: #F5A623;
+      --gold-soft: rgba(245,166,35,0.12);
+      --green: #22C55E;
+      --green-soft: rgba(34,197,94,0.12);
+      --blue: #3B82F6;
+      --blue-soft: rgba(59,130,246,0.12);
+      --text-1: #F1F3FF;
+      --text-2: #8B92B8;
+      --text-3: #555A7E;
+      --sidebar-w: 240px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: var(--bg-base);
+      color: var(--text-1);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── MOBILE APP FEEL ── */
+    body { -webkit-tap-highlight-color: transparent; }
+    .mobile-shell { width: 100%; max-width: 520px; margin: 0 auto; }
+    .safe-bottom { padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
+    .safe-top { padding-top: calc(env(safe-area-inset-top)); }
+    .sticky-cta {
+      position: sticky;
+      bottom: 0;
+      padding-bottom: env(safe-area-inset-bottom);
+      background: linear-gradient(180deg, rgba(11,13,20,0) 0%, rgba(11,13,20,0.65) 18%, rgba(11,13,20,0.92) 100%);
+      backdrop-filter: blur(10px);
+      margin: 0 -14px;
+      padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    .btn-lg { padding: 12px 16px; border-radius: 12px; font-size: 0.85rem; }
+    .btn-full { width: 100%; justify-content: center; }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 99px; }
+
+    /* ── SIDEBAR ── */
+    .sidebar {
+      position: fixed; top: 0; left: 0; height: 100vh;
+      width: var(--sidebar-w);
+      background: var(--bg-card);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      z-index: 100;
+      transition: transform 0.3s ease;
+    }
+    .sidebar-logo {
+      padding: 22px 20px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .logo-badge {
+      width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--fire) 0%, #FF8C42 100%);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 0 20px var(--fire-glow);
+    }
+    .brand-name { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.85rem; line-height: 1.2; }
+    .brand-sub { font-size: 0.65rem; color: var(--text-3); }
+
+    .sidebar-nav { flex: 1; padding: 14px 12px; overflow-y: auto; }
+    .nav-label { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); text-transform: uppercase; padding: 8px 8px 4px; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 12px; border-radius: 9px; cursor: pointer;
+      font-size: 0.8rem; font-weight: 500; color: var(--text-2);
+      transition: all 0.15s ease; margin-bottom: 2px;
+    }
+    .nav-item:hover { background: var(--bg-hover); color: var(--text-1); }
+    .nav-item.active {
+      background: var(--fire-soft);
+      color: var(--fire);
+      border: 1px solid var(--border-active);
+    }
+    .nav-item i { width: 16px; text-align: center; font-size: 0.8rem; }
+
+    .sidebar-footer {
+      padding: 14px 12px;
+      border-top: 1px solid var(--border);
+    }
+    .user-chip {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border-radius: 9px;
+      background: var(--bg-elevated); cursor: pointer;
+    }
+    .avatar {
+      width: 30px; height: 30px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--blue), #8B5CF6);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem; font-weight: 700;
+    }
+    .user-info { flex: 1; min-width: 0; }
+    .user-name { font-size: 0.78rem; font-weight: 600; truncate; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .user-role { font-size: 0.62rem; color: var(--text-3); }
+
+    /* ── MAIN LAYOUT ── */
+    .main-content {
+      margin-left: var(--sidebar-w);
+      min-height: 100vh;
+      display: flex; flex-direction: column;
+    }
+
+    /* ── TOPBAR ── */
+    .topbar {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(11,13,20,0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 28px;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 16px;
+    }
+    .page-title { font-family: 'Space Grotesk', sans-serif; font-size: 1.1rem; font-weight: 700; }
+    .page-sub { font-size: 0.72rem; color: var(--text-3); margin-top: 1px; }
+
+    .topbar-right { display: flex; align-items: center; gap: 10px; }
+    .topbar-badge {
+      display: flex; align-items: center; gap: 7px;
+      padding: 6px 14px; border-radius: 99px; font-size: 0.72rem; font-weight: 600;
+      border: 1px solid;
+    }
+    .badge-admin { background: rgba(245,166,35,0.1); color: var(--gold); border-color: rgba(245,166,35,0.25); }
+    .badge-worker { background: var(--green-soft); color: var(--green); border-color: rgba(34,197,94,0.25); }
+
+    /* ── PAGE BODY ── */
+    .page-body { flex: 1; padding: 28px; }
+
+    /* ── STAT CARDS ── */
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px,1fr)); gap: 16px; margin-bottom: 28px; }
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      position: relative; overflow: hidden;
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+    .stat-card:hover { transform: translateY(-2px); border-color: rgba(255,255,255,0.12); }
+    .stat-icon {
+      width: 38px; height: 38px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.95rem; margin-bottom: 14px;
+    }
+    .stat-value { font-family: 'Space Grotesk', sans-serif; font-size: 1.8rem; font-weight: 700; line-height: 1; }
+    .stat-label { font-size: 0.7rem; color: var(--text-2); margin-top: 5px; font-weight: 500; }
+    .stat-glow { position: absolute; bottom: -20px; right: -20px; width: 80px; height: 80px; border-radius: 50%; filter: blur(30px); opacity: 0.15; }
+
+    /* ── CARDS ── */
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 16px 22px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .panel-title { font-family: 'Space Grotesk', sans-serif; font-size: 0.88rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .panel-title i { color: var(--fire); font-size: 0.8rem; }
+    .panel-body { padding: 20px 22px; }
+
+    /* ── GRID ── */
+    .col-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .col-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+    /* ── TABLE ── */
+    .pro-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    .pro-table thead th {
+      padding: 10px 14px; text-align: left;
+      font-size: 0.65rem; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+      color: var(--text-3); border-bottom: 1px solid var(--border);
+    }
+    .pro-table tbody tr {
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      transition: background 0.1s;
+    }
+    .pro-table tbody tr:hover { background: var(--bg-elevated); }
+    .pro-table tbody tr:last-child { border-bottom: none; }
+    .pro-table td { padding: 11px 14px; color: var(--text-2); }
+    .pro-table td:first-child { color: var(--text-1); font-weight: 500; }
+    .tbl-scroll { overflow-x: auto; }
+    .tbl-scroll::-webkit-scrollbar { height: 3px; }
+
+    /* ── INPUTS ── */
+    .inp, .sel {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      color: var(--text-1);
+      padding: 8px 12px;
+      font-size: 0.78rem;
+      font-family: inherit;
+      transition: border-color 0.15s;
+      width: 100%;
+    }
+    .inp:focus, .sel:focus {
+      outline: none;
+      border-color: var(--fire);
+      background: var(--bg-hover);
+    }
+    .inp::placeholder { color: var(--text-3); }
+
+    /* ── BUTTONS ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: 9px;
+      font-size: 0.75rem; font-weight: 600;
+      cursor: pointer; border: none; font-family: inherit;
+      transition: all 0.15s ease; white-space: nowrap;
+    }
+    .btn-fire { background: linear-gradient(135deg, var(--fire), #FF7043); color: white; box-shadow: 0 4px 14px rgba(255,69,0,0.3); }
+    .btn-fire:hover { box-shadow: 0 4px 20px rgba(255,69,0,0.45); transform: translateY(-1px); }
+    .btn-fire:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+    .btn-ghost { background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-2); }
+    .btn-ghost:hover { background: var(--bg-hover); color: var(--text-1); border-color: rgba(255,255,255,0.14); }
+    .btn-green { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.25); color: var(--green); }
+    .btn-green:hover { background: rgba(34,197,94,0.22); }
+    .btn-danger { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.2); color: #F87171; }
+    .btn-danger:hover { background: rgba(239,68,68,0.2); }
+    .btn-gold { background: var(--gold-soft); border: 1px solid rgba(245,166,35,0.25); color: var(--gold); }
+    .btn-sm { padding: 5px 12px; font-size: 0.7rem; border-radius: 7px; }
+    .btn-xs { padding: 3px 9px; font-size: 0.65rem; border-radius: 6px; }
+
+    /* ── TOGGLE CHECKBOX ── */
+    .toggle-wrap { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    .toggle-wrap input[type="checkbox"] {
+      appearance: none; width: 32px; height: 18px;
+      background: var(--bg-hover); border: 1px solid var(--border);
+      border-radius: 99px; cursor: pointer; position: relative; transition: all 0.2s;
+    }
+    .toggle-wrap input[type="checkbox"]:checked { background: var(--green); border-color: var(--green); }
+    .toggle-wrap input[type="checkbox"]::after {
+      content: ''; position: absolute;
+      width: 12px; height: 12px; background: white; border-radius: 50%;
+      top: 2px; left: 2px; transition: left 0.2s;
+    }
+    .toggle-wrap input[type="checkbox"]:checked::after { left: 16px; }
+
+    /* ── HOUR STEPPER ── */
+    .hour-stepper {
+      display: flex; align-items: center; gap: 4px;
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: 9px; padding: 4px 6px;
+    }
+    .hour-stepper button {
+      width: 24px; height: 24px; border-radius: 6px;
+      background: var(--bg-hover); border: 1px solid var(--border);
+      color: var(--text-2); cursor: pointer; font-size: 0.85rem; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.1s;
+    }
+    .hour-stepper button:hover { background: var(--fire-soft); color: var(--fire); border-color: var(--border-active); }
+    .hour-stepper span { min-width: 38px; text-align: center; font-weight: 700; font-size: 0.85rem; font-family: 'Space Grotesk', sans-serif; }
+
+    /* ── ENTRY ROW ── */
+    .entry-row {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px; margin-bottom: 10px;
+      transition: border-color 0.15s;
+    }
+    .entry-row:hover { border-color: rgba(255,255,255,0.1); }
+    .entry-row-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 22px; height: 22px; background: var(--fire-soft);
+      border: 1px solid var(--border-active); border-radius: 6px;
+      font-size: 0.65rem; font-weight: 700; color: var(--fire);
+    }
+
+    /* ── PROGRESS BAR ── */
+    .progress-wrap { height: 6px; background: var(--bg-elevated); border-radius: 99px; overflow: hidden; }
+    .progress-bar { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--fire), #FF8C42); transition: width 0.4s ease; }
+
+    /* ── LOGIN PANEL ── */
+    .login-wrap {
+      min-height: calc(100vh - 0px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .login-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 36px 32px;
+      width: 100%; max-width: 380px;
+      text-align: center;
+    }
+    .login-icon-ring {
+      width: 64px; height: 64px; border-radius: 50%;
+      border: 2px solid var(--border-active);
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 1.5rem;
+      background: var(--fire-soft);
+      color: var(--fire);
+      box-shadow: 0 0 30px var(--fire-glow);
+    }
+
+    /* ── ACTIVITY CARD (admin) ── */
+    .activity-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px; margin-bottom: 10px;
+    }
+
+    /* ── PROJECT PILL ── */
+    .proj-pill {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: 10px; padding: 11px 14px; margin-bottom: 8px;
+    }
+    .proj-pill.active-proj { border-color: rgba(34,197,94,0.2); }
+    .proj-pill.done-proj { opacity: 0.55; }
+    .proj-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ── CHIPS ── */
+    .chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 12px; border-radius: 99px; font-size: 0.68rem; font-weight: 600;
+    }
+    .chip-fire { background: var(--fire-soft); color: var(--fire); border: 1px solid var(--border-active); }
+    .chip-gold { background: var(--gold-soft); color: var(--gold); border: 1px solid rgba(245,166,35,0.25); }
+    .chip-green { background: var(--green-soft); color: var(--green); border: 1px solid rgba(34,197,94,0.25); }
+    .chip-blue { background: var(--blue-soft); color: var(--blue); border: 1px solid rgba(59,130,246,0.25); }
+
+    /* ── SECTION DIVIDER ── */
+    .section-gap { margin-bottom: 20px; }
+
+    /* ── ADMIN DATE BAR ── */
+    .date-bar {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 16px;
+    }
+    .date-bar label { font-size: 0.72rem; color: var(--text-3); font-weight: 600; margin-right: 2px; }
+
+    /* ── EMPTY STATE ── */
+    .empty-state { text-align: center; padding: 32px 16px; color: var(--text-3); font-size: 0.78rem; }
+    .empty-state i { font-size: 1.8rem; display: block; margin-bottom: 8px; }
+
+    /* ── FOOTER NOTE ── */
+    .footer-note {
+      text-align: center; font-size: 0.65rem; color: var(--text-3);
+      padding: 14px; border-top: 1px solid var(--border);
+      margin-top: auto;
+    }
+
+    /* ── ANIMATIONS ── */
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-up { animation: fadeUp 0.3s ease both; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); }
+      .sidebar.open { transform: translateX(0); }
+      .main-content { margin-left: 0; }
+      .col-2, .col-3 { grid-template-columns: 1fr; }
+      .stat-grid { grid-template-columns: 1fr; }
+      .page-body { padding: 14px; }
+      .panel-header { padding: 14px 16px; }
+      .panel-body { padding: 14px 16px; }
+      .inp, .sel { padding: 12px 12px; font-size: 0.9rem; border-radius: 12px; }
+      .btn { min-height: 44px; }
+      .pro-table { font-size: 0.8rem; }
+    }
+
+    /* ── WORKER SPECIFIC ── */
+    .hours-summary {
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px;
+    }
+    .summary-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; margin-bottom: 8px; }
+    .summary-row:last-child { margin-bottom: 0; }
+    .summary-val { font-family: 'Space Grotesk', sans-serif; font-weight: 700; }
+
+    /* ── ADMIN INPUTS ── */
+    .admin-input { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; color: var(--text-1); padding: 6px 10px; font-size: 0.75rem; font-family: inherit; width: 100%; transition: border-color 0.15s; }
+    .admin-input:focus { outline: none; border-color: var(--fire); }
+
+    /* ── TABS ── */
+    .tab-bar { display: flex; gap: 4px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 4px; margin-bottom: 20px; }
+    .tab-btn {
+      flex: 1; padding: 7px 12px; border-radius: 7px; font-size: 0.72rem; font-weight: 600;
+      cursor: pointer; border: none; background: transparent; color: var(--text-2);
+      font-family: inherit; transition: all 0.15s;
+    }
+    .tab-btn.active { background: var(--bg-card); color: var(--text-1); box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
+  </style>
+</head>
+<body>
+
+<!-- ── SIDEBAR (hidden until admin logged in) ── -->
+<aside class="sidebar" id="adminSidebar" style="display:none;">
+  <div class="sidebar-logo">
+    <div class="logo-badge"><i class="fas fa-fire-extinguisher" style="color:white;font-size:1rem;"></i></div>
+    <div>
+      <div class="brand-name">INDUS FIRE</div>
+      <div class="brand-sub">Safety Systems</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-label">Overview</div>
+    <div class="nav-item active" data-section="overview" onclick="adminNav(this,'overview')"><i class="fas fa-chart-pie"></i>Dashboard</div>
+    <div class="nav-label">Manage</div>
+    <div class="nav-item" data-section="workers" onclick="adminNav(this,'workers')"><i class="fas fa-users"></i>Workers</div>
+    <div class="nav-item" data-section="projects" onclick="adminNav(this,'projects')"><i class="fas fa-building"></i>Projects</div>
+    <div class="nav-item" data-section="activities" onclick="adminNav(this,'activities')"><i class="fas fa-tasks"></i>Activities</div>
+    <div class="nav-label">Records</div>
+    <div class="nav-item" data-section="attendance" onclick="adminNav(this,'attendance')"><i class="fas fa-calendar-check"></i>Attendance</div>
+    <div class="nav-item" data-section="entries" onclick="adminNav(this,'entries')"><i class="fas fa-clipboard-list"></i>All Entries</div>
+    <div class="nav-label">Job Cards</div>
+    <div class="nav-item" data-section="addentry" onclick="adminNav(this,'addentry')"><i class="fas fa-pen-to-square"></i>Add Entry</div>
+    <div class="nav-item" data-section="approvalqueue" onclick="adminNav(this,'approvalqueue')" id="approvalQueueNav"><i class="fas fa-inbox"></i>Approval Queue <span id="pendingBadge" style="display:none;background:var(--fire);color:white;font-size:0.58rem;font-weight:700;padding:1px 6px;border-radius:99px;margin-left:4px;"></span></div>
+    <div class="nav-label">Export</div>
+    <div class="nav-item" data-section="projecthours" onclick="adminNav(this,'projecthours')"><i class="fas fa-chart-bar"></i>Project Hours</div>
+    <div class="nav-item" onclick="doExportExcel()"><i class="fas fa-file-excel"></i>Export Excel</div>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-chip">
+      <div class="avatar">A</div>
+      <div class="user-info">
+        <div class="user-name">Administrator</div>
+        <div class="user-role">Full Access</div>
+      </div>
+      <button onclick="doAdminLogout()" title="Logout" style="background:none;border:none;color:var(--text-3);cursor:pointer;font-size:0.8rem;"><i class="fas fa-sign-out-alt"></i></button>
+    </div>
+  </div>
+</aside>
+
+<!-- ── MAIN ── -->
+<div class="main-content" id="mainContent">
+  <!-- TOPBAR -->
+  <div class="topbar" id="topbar" style="display:none;">
+    <div>
+      <div class="page-title" id="topbarTitle">Dashboard</div>
+      <div class="page-sub" id="topbarSub">Indus Fire Safety — Smart Job Card System</div>
+    </div>
+    <div class="topbar-right" id="topbarRight"></div>
+  </div>
+
+  <!-- APP ROOT -->
+  <div id="appRoot" style="flex:1;"></div>
+
+  <div class="footer-note" id="footerNote">Admin: admin2025 &nbsp;·&nbsp; Daily limit: 7.5h &nbsp;·&nbsp; Sub‑activities auto‑load</div>
+</div>
+
+<script>
+// ── STORAGE ──
+const STORAGE_ENTRIES = "jobcard_entries_v3";
+const STORAGE_PROJECTS = "jobcard_projects_v3";
+const STORAGE_ATTENDANCE = "jobcard_attendance_v3";
+const STORAGE_OT = "jobcard_ot_allowed_v3";
+const STORAGE_SUNDAY = "jobcard_sunday_approved_v3";
+const STORAGE_WORKERS = "jobcard_workers_v3";
+const STORAGE_ACTIVITIES = "jobcard_activities_v3";
+const STORAGE_PENDING = "jobcard_pending_v1";
+
+let jobEntries = [], projects = [], workers = [], activities = [], pendingEntries = [];
+let currentMode = "worker";
+let loggedInWorker = null;
+let adminLoggedIn = false;
+let activeAdminSection = "overview";
+
+function getToday() { return new Date().toISOString().split('T')[0]; }
+
+// Replace the old URL and KEY with your updated project details
+var JC_SUPABASE_URL = 'https://duikfskqbacackelieux.supabase.co';
+var JC_SUPABASE_KEY = 'sb_publishable_YpdpFwDc3uQY27mK_yghYQ_LLiv7IQe';
+
+function _loadScript(src){
+  return new Promise(function(resolve, reject){
+    var s=document.createElement('script');
+    s.src=src;
+    s.async=true;
+    s.onload=function(){ resolve(true); };
+    s.onerror=function(){ reject(new Error('Failed to load: ' + src)); };
+    document.head.appendChild(s);
+  });
+}
+
+/** Loads client before loadFromCloud — UMD first, then fallback CDN if blocked. */
+async function initJobCardSupabase(){
+  window.JobCardSupabase = null;
+  // If UMD already loaded, use it.
+  try{
+    if(window.supabase && typeof window.supabase.createClient === 'function'){
+      window.JobCardSupabase = window.supabase.createClient(JC_SUPABASE_URL, JC_SUPABASE_KEY);
+      return true;
+    }
+  }catch(_e){}
+
+  // Fallback if unpkg blocked on mobile ISP.
+  var fallbacks = [
+    'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/supabase-js/2.49.1/umd/supabase.min.js'
+  ];
+  for(var i=0;i<fallbacks.length;i++){
+    try{
+      await _loadScript(fallbacks[i]);
+      if(window.supabase && typeof window.supabase.createClient === 'function'){
+        window.JobCardSupabase = window.supabase.createClient(JC_SUPABASE_URL, JC_SUPABASE_KEY);
+        return true;
+      }
+    }catch(err){
+      console.warn('Supabase UMD load failed:', fallbacks[i], err);
+    }
+  }
+  console.error('Job Card: could not load Supabase JS (UMD) from any CDN');
+  return false;
+}
+
+// ── SUPABASE (optional) ──
+const sb = () => window.JobCardSupabase || null;
+const isCloudReady = () => !!sb() && window.__jcCloudDisabled !== true;
+
+function _jcDisableCloudOnce(context, err){
+  window.__jcCloudDisabled = true;
+  console.warn('Job Card cloud disabled:', context, err);
+  showToast('Cloud tables missing — using local mode', 'info');
+}
+
+function _jcHandleCloudError(err, context){
+  const msg = err?.message || err?.details || '';
+  if (String(msg).toLowerCase().includes('could not find the table') || String(msg).toLowerCase().includes('schema cache')) {
+    _jcDisableCloudOnce(context, err);
+    return true;
+  }
+  console.error('Job Card Supabase error:', context, err);
+  return false;
+}
+
+function _jcUpper(s){ return (s||'').toString().trim(); }
+
+function _jcPersistAttendanceMapsFromRows(rows){
+  const att = {}, ot = {}, sun = {};
+  (rows||[]).forEach(r=>{
+    const d = r.log_date;
+    const w = r.worker_name;
+    if(!d || !w) return;
+    if(!att[d]) att[d] = {};
+    if(!ot[d]) ot[d] = {};
+    if(!sun[d]) sun[d] = {};
+    att[d][w] = !!r.present;
+    ot[d][w] = !!r.ot_allowed;
+    sun[d][w] = !!r.sunday_approved;
+  });
+  localStorage.setItem(STORAGE_ATTENDANCE, JSON.stringify(att));
+  localStorage.setItem(STORAGE_OT, JSON.stringify(ot));
+  localStorage.setItem(STORAGE_SUNDAY, JSON.stringify(sun));
+}
+
+/** @returns {Promise<boolean>} true if Supabase returned OK and this device now matches server */
+async function loadFromCloud(){
+  if(!sb() || window.__jcCloudDisabled) return false;
+  try{
+    const [wRes, pRes, aRes, eRes, attRes, pendRes] = await Promise.all([
+      sb().from('jc_workers').select('*').order('created_at', { ascending: true }),
+      sb().from('jc_projects').select('*').order('created_at', { ascending: true }),
+      sb().from('jc_activities').select('*').order('created_at', { ascending: true }),
+      sb().from('jc_entries').select('*').order('entry_date', { ascending: false }).order('created_at', { ascending: false }).limit(5000),
+      sb().from('jc_attendance').select('*').order('log_date', { ascending: false }).limit(5000),
+      sb().from('jc_pending_entries').select('*').order('submitted_at', { ascending: false }).limit(2000)
+    ]);
+    const loadErr = wRes.error || pRes.error || aRes.error || eRes.error || attRes.error;
+    if(loadErr){
+      if(!_jcHandleCloudError(loadErr, 'loadFromCloud')) showToast('Cloud load failed', 'error');
+      return false;
+    }
+
+    window.__jcLastCloudSync = new Date().toISOString();
+    try{ localStorage.setItem('jobcard_last_cloud_sync', window.__jcLastCloudSync); }catch(_e){}
+
+    workers = Array.isArray(wRes.data) ? wRes.data.map(function(r){ return { name: r.name, pin: r.pin }; }) : [];
+    saveWorkers();
+
+    projects = Array.isArray(pRes.data) ? pRes.data.map(function(r){ return { id: r.id, name: r.name, active: r.active !== false }; }) : [];
+    saveProjects();
+
+    activities = Array.isArray(aRes.data) ? aRes.data.map(function(r){
+      return {
+        name: r.name,
+        locked: !!r.locked,
+        lockedProjects: Array.isArray(r.locked_projects) ? r.locked_projects : [],
+        subActivities: Array.isArray(r.sub_activities) ? r.sub_activities : []
+      };
+    }) : [];
+    saveActivities();
+
+    jobEntries = Array.isArray(eRes.data) ? eRes.data.map(function(r){
+      return {
+        id: r.id,
+        workerName: r.worker_name,
+        projectName: r.project_name,
+        activity: r.activity_name,
+        subActivity: r.sub_activity || '',
+        hours: Number(r.hours || 0),
+        date: r.entry_date,
+        detailReason: r.remark || ''
+      };
+    }) : [];
+    saveEntries();
+
+    if(Array.isArray(attRes.data)) _jcPersistAttendanceMapsFromRows(attRes.data);
+
+    if(!pendRes?.error && Array.isArray(pendRes?.data)){
+      pendingEntries = pendRes.data.map(function(r){
+        return {
+          id: r.id,
+          workerName: r.worker_name,
+          projectName: r.project_name,
+          activity: r.activity_name,
+          subActivity: r.sub_activity || '',
+          hours: Number(r.hours || 0),
+          date: r.entry_date,
+          detailReason: r.remark || '',
+          status: r.status || 'pending',
+          submittedAt: r.submitted_at || ''
+        };
+      });
+      savePending();
+    }
+
+    return true;
+  }catch(e){
+    if(!_jcHandleCloudError(e, 'loadFromCloud')) showToast('Cloud load exception', 'error');
+    return false;
+  }
+}
+
+function savePending(){localStorage.setItem(STORAGE_PENDING,JSON.stringify(pendingEntries));}
+function loadData() {
+  const se = localStorage.getItem(STORAGE_ENTRIES);
+  jobEntries = se ? JSON.parse(se) : [];
+  jobEntries = jobEntries.filter(e=>e&&e.id).map(e=>{if(!e.date)e.date=getToday();if(!e.detailReason)e.detailReason="";if(!e.subActivity)e.subActivity="";return e;});
+  const sp = localStorage.getItem(STORAGE_PROJECTS);
+  if(sp) projects=JSON.parse(sp); else projects=[{id:1,name:"Vijayawada Factory",active:true},{id:2,name:"Mumbai Depot",active:true}];
+  const sw = localStorage.getItem(STORAGE_WORKERS);
+  if(sw) workers=JSON.parse(sw); else workers=[{name:"Ramesh Kumar",pin:"1111"},{name:"Suresh Patel",pin:"2222"}];
+  const sa = localStorage.getItem(STORAGE_ACTIVITIES);
+  if(sa) activities=JSON.parse(sa); else activities=[
+    {name:"Auto. Electrical work",locked:false,lockedProjects:[],subActivities:["Wiring harness","Connector crimping","Fuse box"]},
+    {name:"Structure welding",locked:false,lockedProjects:[],subActivities:["Root pass","Fill pass","Cap pass"]},
+    {name:"Painting",locked:false,lockedProjects:[],subActivities:["Primer","Base coat","Clear coat"]}
+  ];
+  activities=activities.map(a=>({...a,lockedProjects:a.lockedProjects||[]}));
+  const spe = localStorage.getItem(STORAGE_PENDING);
+  pendingEntries = spe ? JSON.parse(spe) : [];
+  pendingEntries = pendingEntries.filter(e=>e&&e.id);
+  if(!localStorage.getItem(STORAGE_ATTENDANCE))localStorage.setItem(STORAGE_ATTENDANCE,"{}");
+  if(!localStorage.getItem(STORAGE_OT))localStorage.setItem(STORAGE_OT,"{}");
+  if(!localStorage.getItem(STORAGE_SUNDAY))localStorage.setItem(STORAGE_SUNDAY,"{}");
+  saveProjects();saveWorkers();saveActivities();
+}
+function saveEntries(){localStorage.setItem(STORAGE_ENTRIES,JSON.stringify(jobEntries));}
+function saveProjects(){localStorage.setItem(STORAGE_PROJECTS,JSON.stringify(projects));}
+function saveWorkers(){localStorage.setItem(STORAGE_WORKERS,JSON.stringify(workers));}
+function saveActivities(){localStorage.setItem(STORAGE_ACTIVITIES,JSON.stringify(activities));}
+
+async function cloudUpsertWorkers(){
+  if(!isCloudReady()) return;
+  const payload = (workers||[])
+    .filter(w=>w && w.name && w.pin)
+    .map(w=>({ name: _jcUpper(w.name), pin: String(w.pin) }));
+  try{
+    const res = await sb().from('jc_workers').upsert(payload, { onConflict: 'name' });
+    if(res?.error) throw res.error;
+    var r2 = await sb().from('jc_workers').select('*').order('created_at', { ascending: true });
+    if(r2?.error) throw r2.error;
+    if(Array.isArray(r2?.data)){
+      workers = r2.data.map(function(r){ return { name: r.name, pin: r.pin }; });
+      saveWorkers();
+    }
+  }catch(e){ _jcHandleCloudError(e, 'cloudUpsertWorkers'); }
+}
+
+async function cloudUpsertProjects(){
+  if(!isCloudReady()) return;
+  const payload = (projects||[])
+    .filter(p=>p && p.name)
+    .map(p=>({ name: _jcUpper(p.name), active: p.active !== false }));
+  try{
+    const res = await sb().from('jc_projects').upsert(payload, { onConflict: 'name' });
+    if(res?.error) throw res.error;
+    const r2 = await sb().from('jc_projects').select('*').order('created_at', { ascending: true });
+    if(r2?.error) throw r2.error;
+    if(r2?.data){
+      projects = r2.data.map(r=>({ id: r.id, name: r.name, active: r.active !== false }));
+      saveProjects();
+    }
+  }catch(e){ _jcHandleCloudError(e, 'cloudUpsertProjects'); }
+}
+
+async function cloudUpsertActivities(){
+  if(!isCloudReady()) return;
+  const payload = (activities||[])
+    .filter(a=>a && a.name)
+    .map(a=>({
+      name: _jcUpper(a.name),
+      locked: !!a.locked,
+      locked_projects: Array.isArray(a.lockedProjects) ? a.lockedProjects.map(_jcUpper) : [],
+      sub_activities: Array.isArray(a.subActivities) ? a.subActivities.map(_jcUpper) : []
+    }));
+  try{
+    const res = await sb().from('jc_activities').upsert(payload, { onConflict: 'name' });
+    if(res?.error) throw res.error;
+  }catch(e){ _jcHandleCloudError(e, 'cloudUpsertActivities'); }
+}
+
+async function cloudUpsertAttendanceForDate(dateStr){
+  if(!isCloudReady()) return;
+  const d = dateStr || getToday();
+  const att = getAttendanceMap()[d] || {};
+  const ot = getOTMap()[d] || {};
+  const sun = getSundayMap()[d] || {};
+  const payload = (workers||[]).map(w=>({
+    log_date: d,
+    worker_name: _jcUpper(w.name),
+    present: !!att[w.name],
+    ot_allowed: !!ot[w.name],
+    sunday_approved: !!sun[w.name]
+  }));
+  try{
+    const res = await sb().from('jc_attendance').upsert(payload, { onConflict: 'log_date,worker_name' });
+    if(res?.error) throw res.error;
+  }catch(e){ _jcHandleCloudError(e, 'cloudUpsertAttendanceForDate'); }
+}
+function getAttendanceMap(){return JSON.parse(localStorage.getItem(STORAGE_ATTENDANCE)||"{}");}
+function saveAttendanceMap(m){localStorage.setItem(STORAGE_ATTENDANCE,JSON.stringify(m));}
+function getOTMap(){return JSON.parse(localStorage.getItem(STORAGE_OT)||"{}");}
+function saveOTMap(m){localStorage.setItem(STORAGE_OT,JSON.stringify(m));}
+function getSundayMap(){return JSON.parse(localStorage.getItem(STORAGE_SUNDAY)||"{}");}
+function saveSundayMap(m){localStorage.setItem(STORAGE_SUNDAY,JSON.stringify(m));}
+function setAttendance(d,w,v){const a=getAttendanceMap();if(!a[d])a[d]={};a[d][w]=v;saveAttendanceMap(a);}
+function setOT(d,w,v){const o=getOTMap();if(!o[d])o[d]={};o[d][w]=v;saveOTMap(o);}
+function setSunday(d,w,v){const s=getSundayMap();if(!s[d])s[d]={};s[d][w]=v;saveSundayMap(s);}
+function getWorkerDailyHours(worker,date){return jobEntries.filter(e=>e.workerName===worker&&e.date===date).reduce((s,e)=>s+(parseFloat(e.hours)||0),0);}
+function getRemainingHours(worker,date){return Math.max(0,7.5-getWorkerDailyHours(worker,date));}
+async function addEntry(wn,proj,mainAct,subAct,hrs,date,detail){
+  if(!wn||!proj||!mainAct||!hrs||hrs<=0) return false;
+  const localId = 'loc_' + Date.now() + '_' + Math.floor(Math.random()*100000);
+  const entry = { id: localId, workerName: wn.trim(), projectName: proj.trim(), activity: mainAct, subActivity: subAct||"", hours: parseFloat(hrs), date, detailReason: detail||"" };
+  jobEntries.push(entry);
+  saveEntries();
+
+  if(isCloudReady()){
+    try{
+      const res = await sb().from('jc_entries')
+        .insert({
+          entry_date: entry.date,
+          worker_name: _jcUpper(entry.workerName),
+          project_name: _jcUpper(entry.projectName),
+          activity_name: _jcUpper(entry.activity),
+          sub_activity: _jcUpper(entry.subActivity || ''),
+          hours: Number(entry.hours || 0),
+          remark: entry.detailReason || ''
+        })
+        .select('id')
+        .single();
+      if(res?.error) throw res.error;
+      if(res?.data?.id){
+        entry.id = res.data.id;
+        saveEntries();
+      }
+    }catch(e){ _jcHandleCloudError(e, 'addEntry'); }
+  }
+  return true;
+}
+
+async function deleteEntry(id){
+  jobEntries = jobEntries.filter(e=>e.id!==id);
+  saveEntries();
+  if(isCloudReady() && id && typeof id === 'string' && !id.startsWith('loc_')){
+    try{
+      const res = await sb().from('jc_entries').delete().eq('id', id);
+      if(res?.error) throw res.error;
+    }catch(e){ _jcHandleCloudError(e, 'deleteEntry'); }
+  }
+}
+
+// ── PENDING ENTRIES ──
+async function submitPendingEntry(wn,proj,mainAct,subAct,hrs,date,detail){
+  if(!wn||!proj||!mainAct||!hrs||hrs<=0) return false;
+  const localId = 'pnd_' + Date.now() + '_' + Math.floor(Math.random()*100000);
+  const entry = { id: localId, workerName: wn.trim(), projectName: proj.trim(), activity: mainAct, subActivity: subAct||"", hours: parseFloat(hrs), date, detailReason: detail||"", status:'pending', submittedAt: new Date().toISOString() };
+  pendingEntries.push(entry);
+  savePending();
+  if(isCloudReady()){
+    try{
+      const res = await sb().from('jc_pending_entries')
+        .insert({
+          entry_date: entry.date,
+          worker_name: _jcUpper(entry.workerName),
+          project_name: _jcUpper(entry.projectName),
+          activity_name: _jcUpper(entry.activity),
+          sub_activity: _jcUpper(entry.subActivity || ''),
+          hours: Number(entry.hours || 0),
+          remark: entry.detailReason || '',
+          status: 'pending',
+          submitted_at: entry.submittedAt
+        })
+        .select('id').single();
+      if(res?.error) throw res.error;
+      if(res?.data?.id){ entry.id = res.data.id; savePending(); }
+    }catch(e){ _jcHandleCloudError(e, 'submitPendingEntry'); }
+  }
+  return true;
+}
+
+async function approvePendingEntry(pendingId, editedData){
+  const pe = pendingEntries.find(e=>String(e.id)===String(pendingId));
+  if(!pe) return;
+  const merged = { ...pe, ...editedData };
+  // add to approved entries
+  await addEntry(merged.workerName, merged.projectName, merged.activity, merged.subActivity, merged.hours, merged.date, merged.detailReason);
+  // remove from pending locally
+  pendingEntries = pendingEntries.filter(e=>String(e.id)!==String(pendingId));
+  savePending();
+  // update cloud status
+  if(isCloudReady() && !String(pendingId).startsWith('pnd_')){
+    try{
+      await sb().from('jc_pending_entries').update({ status:'approved', reviewed_at: new Date().toISOString(), reviewed_by:'Admin' }).eq('id', pendingId);
+    }catch(e){ _jcHandleCloudError(e,'approvePendingEntry'); }
+  }
+}
+
+async function rejectPendingEntry(pendingId){
+  pendingEntries = pendingEntries.filter(e=>String(e.id)!==String(pendingId));
+  savePending();
+  if(isCloudReady() && !String(pendingId).startsWith('pnd_')){
+    try{
+      await sb().from('jc_pending_entries').update({ status:'rejected', reviewed_at: new Date().toISOString(), reviewed_by:'Admin' }).eq('id', pendingId);
+    }catch(e){ _jcHandleCloudError(e,'rejectPendingEntry'); }
+  }
+}
+
+async function adminAddEntry(wn,proj,mainAct,subAct,hrs,date,detail){
+  return await addEntry(wn,proj,mainAct,subAct,hrs,date,detail);
+}
+function getActiveProjects(){return projects.filter(p=>p.active===true);}
+function getUnlockedActivities(projectName){return activities.filter(a=>{if(a.locked)return false;if(projectName&&a.lockedProjects&&a.lockedProjects.includes(projectName))return false;return true;});}
+function getProjectHoursSummary(){const map={};jobEntries.forEach(e=>{const p=e.projectName||"Unknown";if(!map[p])map[p]={total:0,activities:{}};map[p].total+=(e.hours||0);const act=e.activity||"Unknown";if(!map[p].activities[act])map[p].activities[act]=0;map[p].activities[act]+=(e.hours||0);});return map;}
+function escapeHtml(s){if(!s)return'';return s.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));}
+
+// ── TOPBAR HELPERS ──
+function setTopbar(title,sub,mode){
+  document.getElementById('topbar').style.display='flex';
+  document.getElementById('topbarTitle').textContent=title;
+  document.getElementById('topbarSub').textContent=sub||'Indus Fire Safety — Smart Job Card System';
+  const tr=document.getElementById('topbarRight');
+  if(mode==='admin'){
+    tr.innerHTML=`<span class="topbar-badge badge-admin"><i class="fas fa-user-shield"></i>Admin Mode</span>`;
+  } else if(mode==='worker' && loggedInWorker){
+    const initials=loggedInWorker.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
+    tr.innerHTML=`<span class="topbar-badge badge-worker"><i class="fas fa-user-hard-hat"></i>${escapeHtml(loggedInWorker.name)}</span>
+    <button class="btn btn-ghost btn-sm" onclick="doWorkerLogout()"><i class="fas fa-sign-out-alt"></i> Logout</button>`;
+  } else { tr.innerHTML=''; }
+}
+function hideTopbar(){ document.getElementById('topbar').style.display='none'; }
+
+// ── ADMIN NAV ──
+function adminNav(el, section){
+  document.querySelectorAll('.nav-item[data-section]').forEach(n=>n.classList.remove('active'));
+  el.classList.add('active');
+  activeAdminSection = section;
+  renderAdminSection(section);
+}
+
+// ── WORKER LOGIN ──
+function renderWorkerLogin(){
+  document.getElementById('adminSidebar').style.display='none';
+  hideTopbar();
+  document.getElementById('appRoot').innerHTML=`
+    <div class="login-wrap fade-up">
+      <div class="login-card">
+        <div class="login-icon-ring"><i class="fas fa-hard-hat"></i></div>
+        <div style="font-family:'Space Grotesk',sans-serif;font-size:1.3rem;font-weight:700;margin-bottom:4px;">Worker Login</div>
+        <div style="font-size:0.72rem;color:var(--text-3);margin-bottom:24px;">Select your name and enter your PIN</div>
+        <select id="workerNameSelect" class="sel" style="margin-bottom:12px;">
+          <option value="">Select Name</option>
+          ${workers.map(w=>`<option value="${escapeHtml(w.name)}">${escapeHtml(w.name)}</option>`).join('')}
+        </select>
+        <input type="password" id="workerPinInput" class="inp" placeholder="Enter PIN" style="margin-bottom:16px;">
+        <button id="workerLoginBtn" class="btn btn-fire" style="width:100%;justify-content:center;">
+          <i class="fas fa-arrow-right-to-bracket"></i>Login
+        </button>
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+          <button id="switchToAdminLoginBtn" class="btn btn-ghost btn-sm" style="width:100%;justify-content:center;">
+            <i class="fas fa-user-shield"></i>Switch to Admin Login
+          </button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('workerLoginBtn')?.addEventListener('click',()=>{
+    const name=document.getElementById('workerNameSelect').value;
+    const pin=document.getElementById('workerPinInput').value;
+    const worker=workers.find(w=>w.name===name&&w.pin===pin);
+    if(worker){loggedInWorker=worker;currentMode='worker';renderWorkerDashboard();}
+    else{showToast('Invalid credentials','error');}
+  });
+  document.getElementById('switchToAdminLoginBtn')?.addEventListener('click',()=>{currentMode='admin';renderAdminLogin();});
+}
+
+// ── ADMIN LOGIN ──
+function renderAdminLogin(){
+  document.getElementById('adminSidebar').style.display='none';
+  hideTopbar();
+  document.getElementById('appRoot').innerHTML=`
+    <div class="login-wrap fade-up">
+      <div class="login-card">
+        <div class="login-icon-ring" style="color:var(--gold);background:var(--gold-soft);border-color:rgba(245,166,35,0.4);box-shadow:0 0 30px rgba(245,166,35,0.2);">
+          <i class="fas fa-user-shield"></i>
+        </div>
+        <div style="font-family:'Space Grotesk',sans-serif;font-size:1.3rem;font-weight:700;margin-bottom:4px;">Admin Login</div>
+        <div style="font-size:0.72rem;color:var(--text-3);margin-bottom:24px;">Enter master password to continue</div>
+        <input type="password" id="adminPassInput" class="inp" placeholder="Master password" style="margin-bottom:16px;">
+        <button id="adminLoginBtn" class="btn btn-gold" style="width:100%;justify-content:center;background:linear-gradient(135deg,var(--gold),#E8960F);color:#0B0D14;">
+          <i class="fas fa-unlock-alt"></i>Access Dashboard
+        </button>
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+          <button id="switchToWorkerLoginBtn" class="btn btn-ghost btn-sm" style="width:100%;justify-content:center;">
+            <i class="fas fa-arrow-left"></i>Back to Worker Login
+          </button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('adminLoginBtn')?.addEventListener('click',()=>{
+    if(document.getElementById('adminPassInput').value==='admin2025'){
+      adminLoggedIn=true;currentMode='admin';
+      renderAdminDashboard();
+    } else showToast('Wrong password','error');
+  });
+  document.getElementById('switchToWorkerLoginBtn')?.addEventListener('click',()=>{currentMode='worker';renderWorkerLogin();});
+}
+
+// ── TOAST ──
+function showToast(msg, type='success'){
+  const t=document.createElement('div');
+  const colors={'success':'var(--green)','error':'#F87171','info':'var(--blue)'};
+  const icons={'success':'fas fa-check-circle','error':'fas fa-times-circle','info':'fas fa-info-circle'};
+  t.style.cssText=`position:fixed;bottom:24px;right:24px;z-index:9999;
+    background:var(--bg-elevated);border:1px solid var(--border);
+    border-left:3px solid ${colors[type]||colors.success};
+    border-radius:10px;padding:12px 16px;font-size:0.78rem;
+    display:flex;align-items:center;gap:8px;color:var(--text-1);
+    box-shadow:0 8px 24px rgba(0,0,0,0.4);
+    animation:fadeUp 0.25s ease both;`;
+  t.innerHTML=`<i class="${icons[type]||icons.success}" style="color:${colors[type]||colors.success};"></i>${escapeHtml(msg)}`;
+  document.body.appendChild(t);
+  setTimeout(()=>{ t.style.opacity='0';t.style.transition='opacity 0.3s'; setTimeout(()=>t.remove(),300); },2500);
+}
+
+// ── ADMIN DASHBOARD ──
+function renderAdminDashboard(){
+  if(!adminLoggedIn){renderAdminLogin();return;}
+  document.getElementById('adminSidebar').style.display='flex';
+  setTopbar('Dashboard','Overview & quick stats','admin');
+  renderAdminSection('overview');
+}
+
+function renderAdminSection(section){
+  setTopbar(
+    {overview:'Dashboard',workers:'Worker Management',projects:'Project Management',activities:'Activities',attendance:'Attendance & OT',entries:'All Entries',projecthours:'Project Hours & Export',addentry:'Add Entry (Admin)',approvalqueue:'Approval Queue'}[section]||'Dashboard',
+    'Indus Fire Safety — Admin Panel','admin'
+  );
+  // update pending badge
+  const pendCount = pendingEntries.filter(e=>e.status==='pending').length;
+  const badge = document.getElementById('pendingBadge');
+  if(badge){ if(pendCount>0){badge.textContent=pendCount;badge.style.display='inline';}else{badge.style.display='none';} }
+
+  const root=document.getElementById('appRoot');
+  root.innerHTML='';
+  const wrap=document.createElement('div');
+  wrap.className='page-body fade-up';
+
+  if(section==='overview') wrap.innerHTML=buildOverview();
+  else if(section==='workers') wrap.innerHTML=buildWorkers();
+  else if(section==='projects') wrap.innerHTML=buildProjects();
+  else if(section==='activities') wrap.innerHTML=buildActivities();
+  else if(section==='attendance') wrap.innerHTML=buildAttendance(getToday());
+  else if(section==='entries') wrap.innerHTML=buildEntries();
+  else if(section==='projecthours') wrap.innerHTML=buildProjectHours();
+  else if(section==='addentry') wrap.innerHTML=buildAdminAddEntry();
+  else if(section==='approvalqueue') wrap.innerHTML=buildApprovalQueue();
+
+  root.appendChild(wrap);
+  attachSectionEvents(section);
+}
+
+// ── OVERVIEW ──
+function buildOverview(){
+  const today=getToday();
+  const totalEntries=jobEntries.length;
+  const todayEntries=jobEntries.filter(e=>e.date===today);
+  const totalHoursToday=todayEntries.reduce((s,e)=>s+(e.hours||0),0);
+  const activeProjs=getActiveProjects().length;
+  const att=getAttendanceMap()[today]||{};
+  const presentCount=Object.values(att).filter(Boolean).length;
+  const allEntryDates=[...new Set(jobEntries.map(e=>e.date))];
+  const totalHrsAll=jobEntries.reduce((s,e)=>s+(e.hours||0),0);
+  const pendCount=pendingEntries.filter(e=>e.status==='pending').length;
+
+  // recent entries
+  const recent=[...jobEntries].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,8);
+  const recentRows=recent.map(e=>`
+    <tr>
+      <td>${escapeHtml(e.date)}</td>
+      <td>${escapeHtml(e.workerName)}</td>
+      <td>${escapeHtml(e.projectName)}</td>
+      <td>${escapeHtml(e.activity)}</td>
+      <td><span class="chip chip-gold">${e.hours.toFixed(1)}h</span></td>
+    </tr>`).join('') || '<tr><td colspan="5"><div class="empty-state"><i class="fas fa-inbox"></i>No entries yet</div></td></tr>';
+
+  return `
+    <div class="stat-grid">
+      <div class="stat-card fade-up" style="animation-delay:0.05s;">
+        <div class="stat-icon" style="background:var(--fire-soft);color:var(--fire);"><i class="fas fa-clock"></i></div>
+        <div class="stat-value">${totalHoursToday.toFixed(1)}<span style="font-size:0.9rem;color:var(--text-3);">h</span></div>
+        <div class="stat-label">Hours Logged Today</div>
+        <div class="stat-glow" style="background:var(--fire);"></div>
+      </div>
+      <div class="stat-card fade-up" style="animation-delay:0.1s;">
+        <div class="stat-icon" style="background:var(--green-soft);color:var(--green);"><i class="fas fa-users"></i></div>
+        <div class="stat-value">${presentCount}<span style="font-size:0.9rem;color:var(--text-3);">/${workers.length}</span></div>
+        <div class="stat-label">Workers Present Today</div>
+        <div class="stat-glow" style="background:var(--green);"></div>
+      </div>
+      <div class="stat-card fade-up" style="animation-delay:0.15s;">
+        <div class="stat-icon" style="background:var(--blue-soft);color:var(--blue);"><i class="fas fa-building"></i></div>
+        <div class="stat-value">${activeProjs}</div>
+        <div class="stat-label">Active Projects</div>
+        <div class="stat-glow" style="background:var(--blue);"></div>
+      </div>
+      <div class="stat-card fade-up" style="animation-delay:0.2s;cursor:pointer;" onclick="adminNav(document.querySelector('[data-section=projecthours]'),'projecthours')">
+        <div class="stat-icon" style="background:var(--gold-soft);color:var(--gold);"><i class="fas fa-clipboard-list"></i></div>
+        <div class="stat-value">${totalHrsAll.toFixed(0)}<span style="font-size:0.9rem;color:var(--text-3);">h</span></div>
+        <div class="stat-label">Total Hours · Click for breakdown</div>
+        <div class="stat-glow" style="background:var(--gold);"></div>
+      </div>
+      <div class="stat-card fade-up" style="animation-delay:0.25s;cursor:pointer;${pendCount>0?'border-color:rgba(255,69,0,0.3);':''}" onclick="adminNav(document.querySelector('[data-section=approvalqueue]'),'approvalqueue')">
+        <div class="stat-icon" style="background:var(--fire-soft);color:var(--fire);"><i class="fas fa-inbox"></i></div>
+        <div class="stat-value">${pendCount}</div>
+        <div class="stat-label">Pending Approvals${pendCount>0?' · Click to review':''}</div>
+        <div class="stat-glow" style="background:var(--fire);"></div>
+      </div>
+    </div>
+    <div class="panel fade-up" style="animation-delay:0.25s;">
+      <div class="panel-header">
+        <div class="panel-title"><i class="fas fa-history"></i>Recent Entries</div>
+        <button class="btn btn-ghost btn-sm" onclick="adminNav(document.querySelector('[data-section=entries]'),'entries')">View All</button>
+      </div>
+      <div class="tbl-scroll">
+        <table class="pro-table">
+          <thead><tr><th>Date</th><th>Worker</th><th>Project</th><th>Activity</th><th>Hours</th></tr></thead>
+          <tbody>${recentRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ── WORKERS ──
+function buildWorkers(){
+  const rows=workers.map((w,idx)=>`
+    <tr>
+      <td><input type="text" class="admin-input worker-name-edit" data-idx="${idx}" value="${escapeHtml(w.name)}" style="min-width:140px;"></td>
+      <td><input type="text" class="admin-input worker-pin-edit" data-idx="${idx}" value="${escapeHtml(w.pin)}" style="max-width:80px;"></td>
+      <td>${getWorkerDailyHours(w.name,getToday()).toFixed(1)}h</td>
+      <td><button class="removeWorkerBtn btn btn-danger btn-xs" data-idx="${idx}"><i class="fas fa-trash"></i></button></td>
+    </tr>`).join('');
+  return `
+    <div class="panel fade-up">
+      <div class="panel-header">
+        <div class="panel-title"><i class="fas fa-users"></i>Workers (${workers.length})</div>
+        <div style="display:flex;gap:8px;">
+          <button id="addWorkerBtn" class="btn btn-green btn-sm"><i class="fas fa-plus"></i>Add Worker</button>
+          <button id="saveWorkersBtn" class="btn btn-fire btn-sm"><i class="fas fa-save"></i>Save Changes</button>
+        </div>
+      </div>
+      <div class="tbl-scroll">
+        <table class="pro-table">
+          <thead><tr><th>Name</th><th>PIN</th><th>Today's Hours</th><th>Action</th></tr></thead>
+          <tbody id="workersTbody">${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ── PROJECTS ──
+function buildProjects(){
+  const active=getActiveProjects();
+  const finished=projects.filter(p=>!p.active);
+  return `
+    <div class="col-2 fade-up">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><i class="fas fa-folder-open"></i>Active Projects (${active.length})</div>
+        </div>
+        <div class="panel-body">
+          <div id="activeProjList">
+            ${active.map(p=>`<div class="proj-pill active-proj"><div style="display:flex;align-items:center;gap:8px;"><div class="proj-dot" style="background:var(--green);"></div><span style="font-size:0.8rem;font-weight:500;">${escapeHtml(p.name)}</span></div><div style="display:flex;gap:6px;"><button class="finishProjBtn btn btn-ghost btn-xs" data-id="${p.id}"><i class="fas fa-check"></i>Finish</button><button class="deleteProjBtn btn btn-danger btn-xs" data-id="${p.id}" data-name="${escapeHtml(p.name)}" title="Delete project"><i class="fas fa-trash"></i></button></div></div>`).join('')||'<div class="empty-state"><i class="fas fa-folder-open"></i>No active projects</div>'}
+          </div>
+          <div style="display:flex;gap:8px;margin-top:14px;">
+            <input id="newProjName" class="inp" placeholder="New project name" style="flex:1;">
+            <button id="addProjectBtn" class="btn btn-green btn-sm"><i class="fas fa-plus"></i>Add</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title" style="color:var(--text-3);"><i class="fas fa-archive"></i>Finished Projects (${finished.length})</div>
+        </div>
+        <div class="panel-body">
+          ${finished.map(p=>`<div class="proj-pill done-proj"><div style="display:flex;align-items:center;gap:8px;"><div class="proj-dot" style="background:var(--text-3);"></div><span style="font-size:0.8rem;">${escapeHtml(p.name)}</span></div><div style="display:flex;gap:6px;"><button class="reactivateProjBtn btn btn-ghost btn-xs" data-id="${p.id}"><i class="fas fa-redo"></i>Reactivate</button><button class="deleteProjBtn btn btn-danger btn-xs" data-id="${p.id}" data-name="${escapeHtml(p.name)}" title="Delete project"><i class="fas fa-trash"></i></button></div></div>`).join('')||'<div class="empty-state"><i class="fas fa-check-circle"></i>No finished projects</div>'}
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── ACTIVITIES ──
+function buildActivities(){
+  const activeProjects = projects.filter(p=>p.active);
+  return `
+    <div class="panel fade-up">
+      <div class="panel-header">
+        <div class="panel-title"><i class="fas fa-tasks"></i>Activities & Sub-Categories</div>
+        <div style="display:flex;gap:8px;">
+          <button id="addActivityBtn" class="btn btn-green btn-sm"><i class="fas fa-plus"></i>Add Activity</button>
+          <button id="saveActivitiesBtn" class="btn btn-fire btn-sm"><i class="fas fa-save"></i>Save Changes</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div style="font-size:0.72rem;color:var(--text-2);background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:16px;">
+          <i class="fas fa-info-circle" style="color:var(--blue);margin-right:6px;"></i>
+          <b>Global Lock</b> disables an activity for all projects. <b>Project Lock</b> hides it only for specific projects.
+        </div>
+        <div id="activitiesList">
+          ${activities.map((act,idx)=>`
+            <div class="activity-card">
+              <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;margin-bottom:12px;">
+                <input class="admin-input act-name-edit" data-idx="${idx}" value="${escapeHtml(act.name)}" placeholder="Activity name">
+                <label class="toggle-wrap" style="gap:8px;white-space:nowrap;font-size:0.72rem;color:var(--text-2);">
+                  <input type="checkbox" class="act-lock-chk" data-idx="${idx}" ${act.locked?"checked":""}> Global Lock
+                </label>
+                <button class="removeActBtn btn btn-danger btn-xs" data-idx="${idx}"><i class="fas fa-times"></i></button>
+              </div>
+              <div style="margin-bottom:10px;">
+                <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:7px;font-weight:600;display:flex;align-items:center;gap:6px;"><i class="fas fa-lock" style="color:var(--gold);"></i>LOCK PER PROJECT (active only)</div>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                  ${activeProjects.map(p=>`
+                    <label style="display:flex;align-items:center;gap:6px;font-size:0.72rem;background:var(--bg-hover);border:1px solid var(--border);border-radius:7px;padding:5px 10px;cursor:pointer;">
+                      <input type="checkbox" class="act-proj-lock-chk" data-actidx="${idx}" data-proj="${escapeHtml(p.name)}"
+                        ${(act.lockedProjects||[]).includes(p.name)?"checked":""}
+                        style="width:14px;height:14px;accent-color:var(--gold);">
+                      <span style="color:var(--text-1);">${escapeHtml(p.name)}</span>
+                    </label>`).join("")}
+                  ${activeProjects.length===0?"<span style='font-size:0.72rem;color:var(--text-3);'>No active projects</span>":""}
+                </div>
+              </div>
+              <div>
+                <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">SUB-ACTIVITIES (comma separated)</div>
+                <input class="admin-input act-subs-input" data-idx="${idx}" value="${escapeHtml(act.subActivities.join(", "))}" placeholder="e.g. Phase 1, Phase 2, Phase 3">
+              </div>
+            </div>`).join("")}
+        </div>
+      </div>
+    </div>`;
+}
+// ── ATTENDANCE ──
+let _attSelectedDate = getToday();
+function buildAttendance(selDate){
+  _attSelectedDate=selDate;
+  const att=getAttendanceMap(), ot=getOTMap(), sun=getSundayMap();
+  const rows=workers.map(w=>{
+    const isPres=att[selDate]?.[w.name]||false;
+    const otAllow=ot[selDate]?.[w.name]||false;
+    const sunApp=sun[selDate]?.[w.name]||false;
+    const hrs=getWorkerDailyHours(w.name,selDate);
+    return `<tr>
+      <td>${escapeHtml(w.name)}</td>
+      <td style="text-align:center;"><label class="toggle-wrap" style="justify-content:center;"><input type="checkbox" class="att-chk" data-worker="${escapeHtml(w.name)}" ${isPres?'checked':''}></label></td>
+      <td style="text-align:center;"><label class="toggle-wrap" style="justify-content:center;"><input type="checkbox" class="ot-chk" data-worker="${escapeHtml(w.name)}" ${otAllow?'checked':''}></label></td>
+      <td style="text-align:center;"><label class="toggle-wrap" style="justify-content:center;"><input type="checkbox" class="sun-chk" data-worker="${escapeHtml(w.name)}" ${sunApp?'checked':''}></label></td>
+      <td><span class="chip chip-fire">${hrs.toFixed(2)}h</span></td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="panel fade-up">
+      <div class="panel-header">
+        <div class="panel-title"><i class="fas fa-calendar-check"></i>Attendance & Overtime</div>
+      </div>
+      <div class="panel-body">
+        <div class="date-bar section-gap">
+          <label><i class="fas fa-calendar"></i> Date</label>
+          <input type="date" id="adminDatePicker" class="inp" value="${selDate}" style="width:auto;">
+          <button id="refreshAdminDate" class="btn btn-ghost btn-sm"><i class="fas fa-sync"></i>Load</button>
+          <div style="flex:1;"></div>
+          <button id="saveAttendBtn" class="btn btn-fire btn-sm"><i class="fas fa-save"></i>Save Attendance</button>
+        </div>
+        <div class="tbl-scroll">
+          <table class="pro-table">
+            <thead><tr><th>Worker</th><th>Present</th><th>Overtime</th><th>Sunday</th><th>Hours</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── ALL ENTRIES ──
+function buildEntries(){
+  const sorted=[...jobEntries].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const rows=sorted.map(e=>`
+    <tr>
+      <td>${escapeHtml(e.date)}</td>
+      <td>${escapeHtml(e.workerName)}</td>
+      <td>${escapeHtml(e.projectName)}</td>
+      <td>${escapeHtml(e.activity)}</td>
+      <td style="color:var(--text-3);font-size:0.72rem;">${escapeHtml(e.subActivity||'—')}</td>
+      <td><span class="chip chip-gold">${e.hours.toFixed(2)}h</span></td>
+      <td><button onclick="window.adminDeleteEntry('${String(e.id).replace(/'/g,'')}')" class="btn btn-danger btn-xs"><i class="fas fa-trash"></i></button></td>
+    </tr>`).join('')||'<tr><td colspan="7"><div class="empty-state"><i class="fas fa-inbox"></i>No entries found</div></td></tr>';
+  return `
+    <div class="panel fade-up">
+      <div class="panel-header">
+        <div class="panel-title"><i class="fas fa-table"></i>All Entries (${jobEntries.length})</div>
+        <button class="btn btn-green btn-sm" onclick="doExportExcel()"><i class="fas fa-file-excel"></i>Export Excel</button>
+      </div>
+      <div class="tbl-scroll">
+        <table class="pro-table">
+          <thead><tr><th>Date</th><th>Worker</th><th>Project</th><th>Activity</th><th>Sub</th><th>Hours</th><th>Del</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ── ADMIN ADD ENTRY ──
+function buildAdminAddEntry(){
+  const activeProjectsList = getActiveProjects();
+  const workerOptions = workers.map(w=>`<option value="${escapeHtml(w.name)}">${escapeHtml(w.name)}</option>`).join('');
+  const projectOptions = activeProjectsList.map(p=>`<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`).join('');
+  const activityOptions = activities.filter(a=>!a.locked).map(a=>`<option value="${escapeHtml(a.name)}">${escapeHtml(a.name)}</option>`).join('');
+  return `
+    <div class="panel fade-up" style="max-width:680px;">
+      <div class="panel-header">
+        <div class="panel-title"><i class="fas fa-pen-to-square"></i>Admin Manual Entry</div>
+        <span class="chip chip-gold"><i class="fas fa-user-shield"></i>Bypasses Approval</span>
+      </div>
+      <div class="panel-body">
+        <div style="background:var(--blue-soft);border:1px solid rgba(59,130,246,0.2);border-radius:10px;padding:11px 15px;margin-bottom:20px;font-size:0.75rem;color:var(--blue);display:flex;align-items:center;gap:8px;">
+          <i class="fas fa-info-circle"></i>
+          Admin entries are saved directly to records without needing approval. You can log for any worker on any date.
+        </div>
+        <div class="col-2" style="gap:14px;margin-bottom:14px;">
+          <div>
+            <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">WORKER</div>
+            <select id="adminEntryWorker" class="sel">${workerOptions}</select>
+          </div>
+          <div>
+            <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">DATE</div>
+            <input type="date" id="adminEntryDate" class="inp" value="${getToday()}">
+          </div>
+        </div>
+        <div class="col-2" style="gap:14px;margin-bottom:14px;">
+          <div>
+            <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">PROJECT</div>
+            <select id="adminEntryProject" class="sel" onchange="adminEntryRefreshActivities()">
+              <option value="">Select Project</option>${projectOptions}
+            </select>
+          </div>
+          <div>
+            <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">ACTIVITY</div>
+            <select id="adminEntryActivity" class="sel" onchange="adminEntryRefreshSubs()">
+              <option value="">Select Activity</option>${activityOptions}
+            </select>
+          </div>
+        </div>
+        <div class="col-2" style="gap:14px;margin-bottom:14px;">
+          <div>
+            <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">SUB-ACTIVITY</div>
+            <select id="adminEntrySubActivity" class="sel">
+              <option value="">Select Sub-Activity</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">HOURS</div>
+            <div id="adminEntryStepperWrap"></div>
+          </div>
+        </div>
+        <div style="margin-bottom:20px;">
+          <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">REMARK (optional)</div>
+          <input id="adminEntryRemark" class="inp" placeholder="Add a note for this entry...">
+        </div>
+        <button id="adminEntrySaveBtn" class="btn btn-fire" style="min-width:180px;">
+          <i class="fas fa-save"></i>Save Entry
+        </button>
+      </div>
+    </div>`;
+}
+
+// ── APPROVAL QUEUE ──
+function buildApprovalQueue(){
+  const pending = pendingEntries.filter(e=>e.status==='pending');
+  const filterWorker = window._aqFilterWorker || '';
+  const filterDate = window._aqFilterDate || '';
+  let filtered = pending;
+  if(filterWorker) filtered = filtered.filter(e=>e.workerName===filterWorker);
+  if(filterDate) filtered = filtered.filter(e=>e.date===filterDate);
+  const sorted = [...filtered].sort((a,b)=>(b.submittedAt||'').localeCompare(a.submittedAt||''));
+
+  const workerFilterOptions = ['<option value="">All Workers</option>',
+    ...workers.map(w=>`<option value="${escapeHtml(w.name)}" ${filterWorker===w.name?'selected':''}>${escapeHtml(w.name)}</option>`)
+  ].join('');
+
+  const rows = sorted.map(e=>{
+    const actOptions = activities.filter(a=>!a.locked).map(a=>`<option value="${escapeHtml(a.name)}" ${e.activity===a.name?'selected':''}>${escapeHtml(a.name)}</option>`).join('');
+    const projOptions = getActiveProjects().map(p=>`<option value="${escapeHtml(p.name)}" ${e.projectName===p.name?'selected':''}>${escapeHtml(p.name)}</option>`).join('');
+    const wOptions = workers.map(w=>`<option value="${escapeHtml(w.name)}" ${e.workerName===w.name?'selected':''}>${escapeHtml(w.name)}</option>`).join('');
+    const act = activities.find(a=>a.name===e.activity);
+    const subOptions = act ? act.subActivities.map(s=>`<option value="${escapeHtml(s)}" ${e.subActivity===s?'selected':''}>${escapeHtml(s)}</option>`).join('') : '';
+    const sid = String(e.id).replace(/[^a-zA-Z0-9_]/g,'');
+    return `
+      <div class="entry-row fade-up" id="aqrow_${sid}" style="border-left:3px solid var(--gold);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="chip chip-gold"><i class="fas fa-clock"></i>Pending</span>
+            <span style="font-size:0.68rem;color:var(--text-3);">${e.submittedAt ? new Date(e.submittedAt).toLocaleString() : '—'}</span>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-green btn-sm aq-approve-btn" data-id="${escapeHtml(String(e.id))}"><i class="fas fa-check"></i>Approve</button>
+            <button class="btn btn-danger btn-sm aq-reject-btn" data-id="${escapeHtml(String(e.id))}"><i class="fas fa-times"></i>Reject</button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
+          <div>
+            <div style="font-size:0.6rem;color:var(--text-3);margin-bottom:4px;font-weight:600;">WORKER</div>
+            <select class="sel aq-worker" data-id="${escapeHtml(String(e.id))}" style="font-size:0.75rem;">${wOptions}</select>
+          </div>
+          <div>
+            <div style="font-size:0.6rem;color:var(--text-3);margin-bottom:4px;font-weight:600;">DATE</div>
+            <input type="date" class="inp aq-date" data-id="${escapeHtml(String(e.id))}" value="${escapeHtml(e.date)}" style="font-size:0.75rem;">
+          </div>
+          <div>
+            <div style="font-size:0.6rem;color:var(--text-3);margin-bottom:4px;font-weight:600;">PROJECT</div>
+            <select class="sel aq-project" data-id="${escapeHtml(String(e.id))}" style="font-size:0.75rem;">${projOptions}</select>
+          </div>
+          <div>
+            <div style="font-size:0.6rem;color:var(--text-3);margin-bottom:4px;font-weight:600;">HOURS</div>
+            <input type="number" class="inp aq-hours" data-id="${escapeHtml(String(e.id))}" value="${e.hours}" min="0.25" max="24" step="0.25" style="font-size:0.75rem;">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <div>
+            <div style="font-size:0.6rem;color:var(--text-3);margin-bottom:4px;font-weight:600;">ACTIVITY</div>
+            <select class="sel aq-activity" data-id="${escapeHtml(String(e.id))}" style="font-size:0.75rem;">
+              <option value="">Select</option>${actOptions}
+            </select>
+          </div>
+          <div>
+            <div style="font-size:0.6rem;color:var(--text-3);margin-bottom:4px;font-weight:600;">SUB-ACTIVITY</div>
+            <select class="sel aq-subactivity" data-id="${escapeHtml(String(e.id))}" style="font-size:0.75rem;">
+              <option value="">Select</option>${subOptions}
+            </select>
+          </div>
+          <div>
+            <div style="font-size:0.6rem;color:var(--text-3);margin-bottom:4px;font-weight:600;">REMARK</div>
+            <input class="inp aq-remark" data-id="${escapeHtml(String(e.id))}" value="${escapeHtml(e.detailReason||'')}" placeholder="Remark..." style="font-size:0.75rem;">
+          </div>
+        </div>
+      </div>`;
+  }).join('') || `<div class="empty-state" style="padding:48px;"><i class="fas fa-check-double" style="color:var(--green);"></i><div style="margin-top:8px;font-size:0.85rem;font-weight:600;color:var(--text-2);">All caught up!</div><div style="margin-top:4px;">No pending entries to review.</div></div>`;
+
+  return `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;">
+      <div>
+        <div style="font-family:'Space Grotesk',sans-serif;font-size:1rem;font-weight:700;">Approval Queue</div>
+        <div style="font-size:0.72rem;color:var(--text-3);">${pending.length} pending · ${sorted.length} shown</div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <select id="aqWorkerFilter" class="sel" style="width:auto;" onchange="window._aqFilterWorker=this.value;renderAdminSection('approvalqueue');">${workerFilterOptions}</select>
+        <input type="date" id="aqDateFilter" class="inp" style="width:auto;" value="${filterDate}" onchange="window._aqFilterDate=this.value;renderAdminSection('approvalqueue');">
+        <button class="btn btn-ghost btn-sm" onclick="window._aqFilterWorker='';window._aqFilterDate='';renderAdminSection('approvalqueue');"><i class="fas fa-times"></i>Clear</button>
+        ${pending.length>0?`<button class="btn btn-fire btn-sm" id="approveAllBtn"><i class="fas fa-check-double"></i>Approve All (${pending.length})</button>`:''}
+      </div>
+    </div>
+    <div id="approvalQueueList">${rows}</div>`;
+}
+
+// ── ATTACH SECTION EVENTS ──
+function attachSectionEvents(section){
+  if(section==='workers'){
+    document.getElementById('addWorkerBtn')?.addEventListener('click',async ()=>{
+      workers.push({name:'New Worker',pin:'0000'});
+      saveWorkers();
+      await cloudUpsertWorkers();
+      renderAdminSection('workers');
+    });
+    document.getElementById('saveWorkersBtn')?.addEventListener('click',async ()=>{
+      const nw=[];
+      document.querySelectorAll('.worker-name-edit').forEach((inp,i)=>{
+        const name=inp.value.trim();
+        const pin=document.querySelector(`.worker-pin-edit[data-idx="${i}"]`).value.trim();
+        if(name&&pin)nw.push({name,pin});
+      });
+      if(nw.length)workers=nw;
+      saveWorkers();
+      await cloudUpsertWorkers();
+      showToast('Workers saved');
+      renderAdminSection('workers');
+    });
+    document.querySelectorAll('.removeWorkerBtn').forEach(btn=>btn.addEventListener('click',()=>{
+      (async ()=>{
+        workers.splice(parseInt(btn.dataset.idx),1);
+        saveWorkers();
+        await cloudUpsertWorkers();
+        renderAdminSection('workers');
+      })();
+    }));
+  }
+  if(section==='projects'){
+    document.getElementById('addProjectBtn')?.addEventListener('click',async ()=>{
+      const nm=document.getElementById('newProjName').value.trim();
+      if(nm){
+        projects.push({id:Date.now(),name:nm,active:true});
+        saveProjects();
+        await cloudUpsertProjects();
+        showToast('Project added');
+        renderAdminSection('projects');
+      }
+    });
+    document.querySelectorAll('.finishProjBtn').forEach(btn=>btn.addEventListener('click',()=>{
+      (async ()=>{
+        const pid = btn.dataset.id;
+        const p=projects.find(pr=>String(pr.id)===String(pid));
+        if(p){
+          p.active=false;
+          saveProjects();
+          await cloudUpsertProjects();
+          renderAdminSection('projects');
+        }
+      })();
+    }));
+    document.querySelectorAll('.reactivateProjBtn').forEach(btn=>btn.addEventListener('click',()=>{
+      (async ()=>{
+        const pid = btn.dataset.id;
+        const p=projects.find(pr=>String(pr.id)===String(pid));
+        if(p){
+          p.active=true;
+          saveProjects();
+          await cloudUpsertProjects();
+          renderAdminSection('projects');
+        }
+      })();
+    }));
+    document.querySelectorAll('.deleteProjBtn').forEach(btn=>btn.addEventListener('click',()=>{
+      (async ()=>{
+        const pid = btn.dataset.id;
+        const pname = btn.dataset.name || 'this project';
+        if(!confirm(`Delete "${pname}"?\n\nThis will permanently remove the project. All logged entries referencing it will remain in records.`)) return;
+        if(!confirm(`⚠️ SECOND CONFIRMATION\n\nAre you absolutely sure you want to delete "${pname}"? This cannot be undone.`)) return;
+        projects = projects.filter(pr=>String(pr.id)!==String(pid));
+        saveProjects();
+        if(isCloudReady()){
+          try{
+            await sb().from('jc_projects').delete().eq('name', pname);
+          }catch(e){ _jcHandleCloudError(e,'deleteProject'); }
+        }
+        showToast(`"${pname}" deleted`,'success');
+        renderAdminSection('projects');
+      })();
+    }));
+  }
+  if(section==='activities'){
+    document.getElementById('addActivityBtn')?.addEventListener('click',async ()=>{
+      activities.push({name:'New Activity',locked:false,subActivities:[],lockedProjects:[]});
+      saveActivities();
+      await cloudUpsertActivities();
+      renderAdminSection('activities');
+    });
+    document.getElementById('saveActivitiesBtn')?.addEventListener('click',async ()=>{
+      const na=[];
+      document.querySelectorAll('.act-name-edit').forEach((inp,i)=>{
+        const name=inp.value.trim();
+        const locked=document.querySelector(`.act-lock-chk[data-idx="${i}"]`).checked;
+        const subs=document.querySelector(`.act-subs-input[data-idx="${i}"]`).value.split(',').map(s=>s.trim()).filter(s=>s);
+        // collect per-project locks
+        const lockedProjects=[];
+        document.querySelectorAll(`.act-proj-lock-chk[data-actidx="${i}"]`).forEach(cb=>{if(cb.checked)lockedProjects.push(cb.dataset.proj);});
+        if(name)na.push({name,locked,lockedProjects,subActivities:subs});
+      });
+      if(na.length)activities=na;
+      saveActivities();
+      await cloudUpsertActivities();
+      showToast('Activities saved');
+      renderAdminSection('activities');
+    });
+    document.querySelectorAll('.removeActBtn').forEach(btn=>btn.addEventListener('click',()=>{
+      (async ()=>{
+        activities.splice(parseInt(btn.dataset.idx),1);
+        saveActivities();
+        await cloudUpsertActivities();
+        renderAdminSection('activities');
+      })();
+    }));
+  }
+  if(section==='projecthours'){
+    document.querySelectorAll('.export-proj-btn').forEach(btn=>btn.addEventListener('click',()=>{
+      doExportExcelForProject(btn.dataset.proj);
+    }));
+  }
+  if(section==='attendance'){
+    document.getElementById('refreshAdminDate')?.addEventListener('click',()=>{
+      const nd=document.getElementById('adminDatePicker').value;
+      if(nd){document.getElementById('appRoot').querySelector('.page-body').innerHTML=buildAttendance(nd);attachSectionEvents('attendance');}
+    });
+    document.getElementById('saveAttendBtn')?.addEventListener('click',async ()=>{
+      document.querySelectorAll('.att-chk').forEach(ch=>setAttendance(_attSelectedDate,ch.dataset.worker,ch.checked));
+      document.querySelectorAll('.ot-chk').forEach(ch=>setOT(_attSelectedDate,ch.dataset.worker,ch.checked));
+      document.querySelectorAll('.sun-chk').forEach(ch=>setSunday(_attSelectedDate,ch.dataset.worker,ch.checked));
+      await cloudUpsertAttendanceForDate(_attSelectedDate);
+      showToast('Attendance saved');
+    });
+  }
+
+  if(section==='addentry'){
+    // setup hour stepper
+    let _adminEntryHours = 7.5;
+    const stepWrap = document.getElementById('adminEntryStepperWrap');
+    if(stepWrap){
+      const stepper = buildSimpleStepper(7.5, v=>{ _adminEntryHours=v; });
+      stepWrap.appendChild(stepper);
+    }
+    window.adminEntryRefreshActivities = function(){
+      const proj = document.getElementById('adminEntryProject')?.value || '';
+      const actSel = document.getElementById('adminEntryActivity');
+      if(!actSel) return;
+      const avail = getUnlockedActivities(proj);
+      actSel.innerHTML = '<option value="">Select Activity</option>' + avail.map(a=>`<option value="${escapeHtml(a.name)}">${escapeHtml(a.name)}</option>`).join('');
+      document.getElementById('adminEntrySubActivity').innerHTML='<option value="">Select Sub-Activity</option>';
+    };
+    window.adminEntryRefreshSubs = function(){
+      const actName = document.getElementById('adminEntryActivity')?.value || '';
+      const subSel = document.getElementById('adminEntrySubActivity');
+      if(!subSel) return;
+      const act = activities.find(a=>a.name===actName);
+      subSel.innerHTML = '<option value="">Select Sub-Activity</option>' + (act?.subActivities||[]).map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+    };
+    document.getElementById('adminEntrySaveBtn')?.addEventListener('click', async ()=>{
+      const wn = document.getElementById('adminEntryWorker')?.value?.trim();
+      const date = document.getElementById('adminEntryDate')?.value;
+      const proj = document.getElementById('adminEntryProject')?.value?.trim();
+      const act = document.getElementById('adminEntryActivity')?.value?.trim();
+      const sub = document.getElementById('adminEntrySubActivity')?.value?.trim();
+      const remark = document.getElementById('adminEntryRemark')?.value?.trim();
+      if(!wn||!date||!proj||!act||!sub){showToast('Fill all required fields','error');return;}
+      if(_adminEntryHours<=0){showToast('Hours must be > 0','error');return;}
+      const btn = document.getElementById('adminEntrySaveBtn');
+      btn.disabled=true; btn.innerHTML='<i class="fas fa-spinner fa-spin"></i>Saving...';
+      const ok = await adminAddEntry(wn,proj,act,sub,_adminEntryHours,date,remark);
+      if(ok){ showToast(`Entry saved for ${wn}!`); renderAdminSection('addentry'); }
+      else { showToast('Failed to save entry','error'); btn.disabled=false; btn.innerHTML='<i class="fas fa-save"></i>Save Entry'; }
+    });
+  }
+
+  if(section==='approvalqueue'){
+    // Approve All
+    document.getElementById('approveAllBtn')?.addEventListener('click', async ()=>{
+      if(!confirm('Approve all pending entries as-is?')) return;
+      const toApprove = pendingEntries.filter(e=>e.status==='pending');
+      for(const pe of toApprove){ await approvePendingEntry(pe.id, {}); }
+      showToast(`${toApprove.length} entries approved!`);
+      renderAdminSection('approvalqueue');
+    });
+
+    // Per-row approve
+    document.querySelectorAll('.aq-approve-btn').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const id = btn.dataset.id;
+        const editedData = _getAQRowData(id);
+        btn.disabled=true; btn.innerHTML='<i class="fas fa-spinner fa-spin"></i>';
+        await approvePendingEntry(id, editedData);
+        showToast('Entry approved & saved!');
+        renderAdminSection('approvalqueue');
+      });
+    });
+
+    // Per-row reject
+    document.querySelectorAll('.aq-reject-btn').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        if(!confirm('Reject and discard this entry?')) return;
+        const id = btn.dataset.id;
+        await rejectPendingEntry(id);
+        showToast('Entry rejected','info');
+        renderAdminSection('approvalqueue');
+      });
+    });
+  }
+}
+
+// ── PROJECT HOURS ──
+function buildProjectHours(){
+  const summary=getProjectHoursSummary();
+  const projNames=Object.keys(summary);
+  const totalAll=Object.values(summary).reduce((s,p)=>s+p.total,0);
+
+  if(projNames.length===0){
+    return `<div class="panel fade-up"><div class="panel-header"><div class="panel-title"><i class="fas fa-chart-bar"></i>Project Hours</div></div>
+    <div class="empty-state" style="padding:48px;"><i class="fas fa-inbox"></i>No entries yet. Start logging hours to see project summaries.</div></div>`;
+  }
+
+  const projectCards=projNames.map(pName=>{
+    const pd=summary[pName];
+    const proj=projects.find(p=>p.name===pName);
+    const isActive=proj?proj.active:true;
+    const pct=totalAll>0?((pd.total/totalAll)*100).toFixed(1):0;
+    const actRows=Object.entries(pd.activities).sort((a,b)=>b[1]-a[1]).map(([act,hrs])=>{
+      const apct=pd.total>0?((hrs/pd.total)*100).toFixed(0):0;
+      return `<tr>
+        <td style="padding:9px 14px;">${escapeHtml(act)}</td>
+        <td style="padding:9px 14px;"><span class="chip chip-gold">${hrs.toFixed(2)}h</span></td>
+        <td style="padding:9px 14px;width:120px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="progress-wrap" style="flex:1;"><div class="progress-bar" style="width:${apct}%;"></div></div>
+            <span style="font-size:0.68rem;color:var(--text-3);min-width:28px;">${apct}%</span>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+    return `
+      <div class="panel section-gap fade-up">
+        <div class="panel-header" style="background:var(--bg-elevated);">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:10px;height:10px;border-radius:50%;background:${isActive?'var(--green)':'var(--text-3)'};"></div>
+            <div class="panel-title" style="font-size:0.95rem;">${escapeHtml(pName)}</div>
+            <span class="chip ${isActive?'chip-green':'chip-blue'}" style="font-size:0.62rem;">${isActive?'Active':'Finished'}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="text-align:right;">
+              <div style="font-family:'Space Grotesk',sans-serif;font-size:1.3rem;font-weight:700;">${pd.total.toFixed(1)}<span style="font-size:0.8rem;color:var(--text-3);">h</span></div>
+              <div style="font-size:0.65rem;color:var(--text-3);">${pct}% of total</div>
+            </div>
+            <button class="btn btn-green btn-sm export-proj-btn" data-proj="${escapeHtml(pName)}"><i class="fas fa-file-excel"></i>Export</button>
+          </div>
+        </div>
+        <div>
+          <div style="padding:10px 22px 6px;display:flex;align-items:center;gap:8px;">
+            <div class="progress-wrap" style="flex:1;"><div class="progress-bar" style="width:${pct}%;background:linear-gradient(90deg,var(--blue),#8B5CF6);"></div></div>
+            <span style="font-size:0.68rem;color:var(--text-3);">${pct}% of all hours</span>
+          </div>
+          <div class="tbl-scroll">
+            <table class="pro-table">
+              <thead><tr><th>Activity</th><th>Hours</th><th>% of Project</th></tr></thead>
+              <tbody>${actRows}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <div>
+        <div style="font-family:'Space Grotesk',sans-serif;font-size:1rem;font-weight:700;">All Projects Summary</div>
+        <div style="font-size:0.72rem;color:var(--text-3);">${projNames.length} projects · ${totalAll.toFixed(1)}h total</div>
+      </div>
+      <button class="btn btn-fire btn-sm" onclick="doExportExcel()"><i class="fas fa-file-excel"></i>Export All Projects</button>
+    </div>
+    <div class="stat-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr));margin-bottom:24px;">
+      ${projNames.map(pName=>{
+        const pd=summary[pName];
+        const proj=projects.find(p=>p.name===pName);
+        const isActive=proj?proj.active:true;
+        const pct=totalAll>0?((pd.total/totalAll)*100).toFixed(1):0;
+        const actCount=Object.keys(pd.activities).length;
+        return `<div class="stat-card">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
+            <div style="width:8px;height:8px;border-radius:50%;background:${isActive?'var(--green)':'var(--text-3)'};"></div>
+            <div style="font-size:0.7rem;font-weight:600;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(pName)}">${escapeHtml(pName)}</div>
+          </div>
+          <div class="stat-value" style="font-size:1.5rem;">${pd.total.toFixed(1)}<span style="font-size:0.75rem;color:var(--text-3);">h</span></div>
+          <div class="stat-label">${actCount} activit${actCount===1?'y':'ies'}</div>
+          <div class="progress-wrap" style="margin-top:10px;"><div class="progress-bar" style="width:${pct}%;background:${isActive?'linear-gradient(90deg,var(--green),var(--blue))':'var(--text-3)'};"></div></div>
+        </div>`;
+      }).join('')}
+    </div>
+    ${projectCards}`;
+}
+
+// ── HELPERS ──
+function _getAQRowData(id){
+  const sid = String(id).replace(/[^a-zA-Z0-9_]/g,'');
+  const get = cls => document.querySelector(`.${cls}[data-id="${CSS.escape(String(id))}"]`)?.value || '';
+  return {
+    workerName: get('aq-worker'),
+    date: get('aq-date'),
+    projectName: get('aq-project'),
+    activity: get('aq-activity'),
+    subActivity: get('aq-subactivity'),
+    hours: parseFloat(get('aq-hours')) || 0,
+    detailReason: get('aq-remark')
+  };
+}
+
+function buildSimpleStepper(initial, onChange){
+  const div=document.createElement('div'); div.className='hour-stepper';
+  const dec=document.createElement('button'); dec.innerHTML='<i class="fas fa-minus" style="font-size:0.6rem;"></i>';
+  const span=document.createElement('span'); span.innerText=(initial||0).toFixed(1);
+  const inc=document.createElement('button'); inc.innerHTML='<i class="fas fa-plus" style="font-size:0.6rem;"></i>';
+  let val=parseFloat(initial)||0;
+  dec.onclick=()=>{val=Math.max(0.25,parseFloat((val-0.25).toFixed(2)));span.innerText=val.toFixed(1);onChange(val);};
+  inc.onclick=()=>{val=parseFloat((val+0.25).toFixed(2));span.innerText=val.toFixed(1);onChange(val);};
+  div.append(dec,span,inc);
+  return div;
+}
+
+// ── EXPORT EXCEL ──
+function doExportExcelForProject(projName){
+  const wb=XLSX.utils.book_new();
+  const entries=jobEntries.filter(e=>e.projectName===projName);
+  // Summary sheet
+  const actMap={};
+  entries.forEach(e=>{
+    const act=e.activity||'Unknown';
+    if(!actMap[act])actMap[act]={activity:act,totalHours:0,entries:[]};
+    actMap[act].totalHours+=e.hours||0;
+    actMap[act].entries.push(e);
+  });
+  const summaryRows=Object.values(actMap).map(a=>({'Activity':a.activity,'Total Hours':a.totalHours.toFixed(2)}));
+  const wsSummary=XLSX.utils.json_to_sheet(summaryRows);
+  XLSX.utils.book_append_sheet(wb,wsSummary,'Summary');
+  // Detail sheet
+  const detailRows=entries.map(e=>({'Date':e.date,'Worker':e.workerName,'Activity':e.activity,'Sub-Activity':e.subActivity||'','Hours':e.hours.toFixed(2),'Remark':e.detailReason||''}));
+  const wsDetail=XLSX.utils.json_to_sheet(detailRows);
+  XLSX.utils.book_append_sheet(wb,wsDetail,'Detail');
+  XLSX.writeFile(wb,`${projName.replace(/[^a-zA-Z0-9]/g,'_')}_Hours_${getToday()}.xlsx`);
+  showToast(`Exported: ${projName}`);
+}
+
+function doExportExcel(){
+  const wb=XLSX.utils.book_new();
+  // Summary sheet: all projects
+  const summaryRows=[];
+  const projMap=new Map();
+  jobEntries.forEach(e=>{
+    const p=e.projectName||'Unknown';
+    if(!projMap.has(p))projMap.set(p,new Map());
+    const actMap=projMap.get(p);
+    actMap.set(e.activity,(actMap.get(e.activity)||0)+(e.hours||0));
+  });
+  for(let[proj,actMap]of projMap.entries())
+    for(let[act,hrs]of actMap.entries())
+      summaryRows.push({Project:proj,Activity:act,"Total Hours":hrs.toFixed(2)});
+  const wsSummary=XLSX.utils.json_to_sheet(summaryRows);
+  XLSX.utils.book_append_sheet(wb,wsSummary,'All Projects');
+  // One sheet per project
+  for(let[proj,actMap]of projMap.entries()){
+    const projRows=[];
+    for(let[act,hrs]of actMap.entries())
+      projRows.push({Activity:act,"Total Hours":hrs.toFixed(2)});
+    // detail rows
+    const details=jobEntries.filter(e=>e.projectName===proj).map(e=>({Date:e.date,Worker:e.workerName,Activity:e.activity,"Sub-Activity":e.subActivity||'',"Hours":e.hours.toFixed(2),Remark:e.detailReason||''}));
+    const sheetName=proj.replace(/[\/:*?\[\]]/g,'').slice(0,28);
+    const ws=XLSX.utils.json_to_sheet(projRows);
+    // add blank row then details
+    XLSX.utils.sheet_add_aoa(ws,[[]],{origin:-1});
+    XLSX.utils.sheet_add_json(ws,details,{origin:-1,skipHeader:false});
+    XLSX.utils.book_append_sheet(wb,ws,sheetName);
+  }
+  XLSX.writeFile(wb,`IndusFireSafety_Hours_${getToday()}.xlsx`);
+  showToast('All projects exported!');
+}
+
+function doAdminLogout(){adminLoggedIn=false;currentMode='worker';renderWorkerLogin();}
+function doWorkerLogout(){loggedInWorker=null;_workerTab='log';currentMode='worker';renderWorkerLogin();}
+
+window.adminDeleteEntry=function(id){
+  (async ()=>{
+    if(confirm('Delete this entry?')){
+      await deleteEntry(id);
+      if(currentMode==='admin') renderAdminSection('entries');
+    }
+  })();
+};
+
+// ── WORKER DASHBOARD ──
+let _workerTab = 'log';
+function renderWorkerDashboard(){
+  if(!loggedInWorker){renderWorkerLogin();return;}
+  document.getElementById('adminSidebar').style.display='none';
+  const worker=loggedInWorker;
+  const today=getToday();
+  const booked=getWorkerDailyHours(worker.name,today);
+  const remaining=getRemainingHours(worker.name,today);
+  const pct=Math.min(100,(booked/7.5)*100);
+  const activeProjectsList=getActiveProjects().map(p=>p.name);
+  setTopbar(worker.name, `Today: ${today}`, 'worker');
+
+  // rows: [{project, mainAct, subActs:[name,...], hours, detail}]
+  let rows=[{project:'',mainAct:'',subActs:[],hours:Math.min(7.5,remaining),detail:''}];
+
+  function getRowActivities(proj){return getUnlockedActivities(proj||null);}
+  function getSubList(mainAct,proj){
+    const acts=getRowActivities(proj);
+    const act=acts.find(a=>a.name===mainAct);
+    return act?act.subActivities:[];
+  }
+
+  function refreshRowsUI(){
+    const container=document.getElementById('dynamicRowsContainer');
+    if(!container)return;
+    let html='';
+    rows.forEach((row,idx)=>{
+      const rowActs=getRowActivities(row.project);
+      const subList=row.mainAct?getSubList(row.mainAct,row.project):[];
+      const checkedSet=new Set(row.subActs||[]);
+
+      let subSection='';
+      if(row.mainAct && subList.length>0){
+        subSection=`
+          <div>
+            <div style="font-size:0.62rem;color:var(--text-3);margin-bottom:6px;font-weight:600;display:flex;align-items:center;gap:6px;">
+              <i class="fas fa-list-check" style="color:var(--fire);"></i>SUB-ACTIVITIES — select all that apply
+              ${checkedSet.size>0?`<span class="chip chip-fire" style="font-size:0.58rem;">${checkedSet.size} selected</span>`:''}
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:7px;">
+              ${subList.map(s=>{
+                const on=checkedSet.has(s);
+                return `<button type="button" class="sub-pill-btn ${on?'sub-pill-on':''}" data-rowidx="${idx}" data-sub="${escapeHtml(s)}"
+                  style="padding:6px 13px;border-radius:99px;font-size:0.74rem;font-weight:500;cursor:pointer;border:1px solid ${on?'var(--border-active)':'var(--border)'};background:${on?'var(--fire-soft)':'var(--bg-hover)'};color:${on?'var(--fire)':'var(--text-2)'};transition:all 0.13s;">
+                  ${on?'<i class="fas fa-check" style="font-size:0.6rem;margin-right:4px;"></i>':''}${escapeHtml(s)}
+                </button>`;
+              }).join('')}
+            </div>
+          </div>`;
+      } else if(row.mainAct && subList.length===0){
+        subSection=`<div style="font-size:0.72rem;color:var(--text-3);padding:6px 0;"><i class="fas fa-info-circle" style="margin-right:5px;"></i>No sub-activities for this activity</div>`;
+        if(!row.subActs||row.subActs.length===0) row.subActs=['—'];
+      }
+
+      html+=`
+        <div class="entry-row" id="entryrow-${idx}">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span class="entry-row-num">${idx+1}</span>
+              <span style="font-size:0.72rem;font-weight:600;color:var(--text-2);">Entry ${idx+1}</span>
+            </div>
+            <button class="removeRowBtn btn btn-danger btn-xs" data-idx="${idx}"><i class="fas fa-times"></i></button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
+            <div>
+              <div style="font-size:0.62rem;color:var(--text-3);margin-bottom:4px;font-weight:600;">PROJECT</div>
+              <select class="sel row-project" data-idx="${idx}" style="font-size:0.75rem;">
+                <option value="">Select</option>${activeProjectsList.map(p=>`<option value="${escapeHtml(p)}" ${row.project===p?'selected':''}>${escapeHtml(p)}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <div style="font-size:0.62rem;color:var(--text-3);margin-bottom:4px;font-weight:600;">ACTIVITY</div>
+              <select class="sel row-mainAct" data-idx="${idx}" style="font-size:0.75rem;">
+                <option value="">Select</option>${rowActs.map(a=>`<option value="${escapeHtml(a.name)}" ${row.mainAct===a.name?"selected":""}>${escapeHtml(a.name)}</option>`).join("")}
+              </select>
+            </div>
+          </div>
+          ${subSection?`<div style="margin-bottom:12px;">${subSection}</div>`:''}
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center;">
+            <div>
+              <div style="font-size:0.62rem;color:var(--text-3);margin-bottom:4px;font-weight:600;">HOURS (total)</div>
+              <div id="hourStepper-${idx}"></div>
+            </div>
+            <div>
+              <div style="font-size:0.62rem;color:var(--text-3);margin-bottom:4px;font-weight:600;">REMARK</div>
+              <input class="inp row-detail" data-idx="${idx}" value="${escapeHtml(row.detail||'')}" placeholder="Optional remark..." style="font-size:0.75rem;">
+            </div>
+          </div>
+        </div>`;
+    });
+    html+=`<button id="addRowBtn" class="btn btn-ghost" style="width:100%;justify-content:center;margin-top:4px;border-style:dashed;"><i class="fas fa-plus"></i>Add Another Entry</button>`;
+    container.innerHTML=html;
+
+    // Mount hour steppers (one per row)
+    rows.forEach((row,idx)=>{
+      const ph=document.getElementById(`hourStepper-${idx}`);
+      if(ph){
+        const st=createHourStepper(row.hours||0.5,val=>{rows[idx].hours=val;updateTotals();});
+        ph.innerHTML=''; ph.appendChild(st);
+      }
+    });
+
+    // Sub-pill toggle
+    document.querySelectorAll('.sub-pill-btn').forEach(btn=>btn.addEventListener('click',()=>{
+      const idx=parseInt(btn.dataset.rowidx);
+      const s=btn.dataset.sub;
+      const row=rows[idx];
+      if(row.subActs.includes(s)) row.subActs=row.subActs.filter(x=>x!==s);
+      else row.subActs=[...row.subActs,s];
+      refreshRowsUI(); updateTotals();
+    }));
+
+    // Remove row
+    document.querySelectorAll('.removeRowBtn').forEach(btn=>btn.addEventListener('click',()=>{
+      const idx=parseInt(btn.dataset.idx);
+      if(rows.length>1){rows.splice(idx,1);refreshRowsUI();updateTotals();}
+      else showToast('At least one entry needed','error');
+    }));
+
+    // Project / Activity change
+    document.querySelectorAll('.row-project').forEach(el=>el.addEventListener('change',e=>{
+      const idx=parseInt(e.target.dataset.idx);
+      rows[idx].project=e.target.value; rows[idx].mainAct=''; rows[idx].subActs=[];
+      refreshRowsUI(); updateTotals();
+    }));
+    document.querySelectorAll('.row-mainAct').forEach(el=>el.addEventListener('change',e=>{
+      const idx=parseInt(e.target.dataset.idx);
+      rows[idx].mainAct=e.target.value; rows[idx].subActs=[];
+      refreshRowsUI(); updateTotals();
+    }));
+
+    // Remark
+    document.querySelectorAll('.row-detail').forEach(el=>el.addEventListener('input',e=>{
+      const idx=parseInt(e.target.dataset.idx);
+      rows[idx].detail=e.target.value;
+    }));
+
+    document.getElementById('addRowBtn')?.addEventListener('click',()=>{
+      rows.push({project:'',mainAct:'',subActs:[],hours:0.5,detail:''});
+      refreshRowsUI(); updateTotals();
+    });
+  }
+
+  const updateTotals=()=>{
+    const total=rows.reduce((s,r)=>s+(r.hours||0),0);
+    const avail=getRemainingHours(worker.name,today);
+    // valid: project, activity selected, at least one sub picked (or no subs exist), hours>0
+    const allValid=rows.every(r=>{
+      if(!r.project||!r.mainAct||r.hours<=0) return false;
+      const subList=getSubList(r.mainAct,r.project);
+      if(subList.length>0 && (!r.subActs||r.subActs.length===0)) return false;
+      return true;
+    });
+    const btn=document.getElementById('submitMultiBtn');
+    const totalEl=document.getElementById('totalNewHours');
+    const remEl=document.getElementById('remainingAfter');
+    if(totalEl)totalEl.textContent=total.toFixed(1);
+    if(remEl)remEl.textContent=(avail-total).toFixed(1);
+    if(btn)btn.disabled=(!allValid||total===0||total>avail);
+    const bar=document.getElementById('hoursProgressBar');
+    if(bar)bar.style.width=Math.min(100,((booked+total)/7.5)*100)+'%';
+  };
+
+  function createHourStepper(initial,onChange){
+    const div=document.createElement('div');div.className='hour-stepper';
+    const dec=document.createElement('button');dec.innerHTML='<i class="fas fa-minus" style="font-size:0.6rem;"></i>';
+    const span=document.createElement('span');span.innerText=(initial||0).toFixed(1);
+    const inc=document.createElement('button');inc.innerHTML='<i class="fas fa-plus" style="font-size:0.6rem;"></i>';
+    let val=parseFloat(initial)||0;
+    dec.onclick=()=>{val=Math.max(0,val-0.25);span.innerText=val.toFixed(1);onChange(val);};
+    inc.onclick=()=>{val+=0.25;span.innerText=val.toFixed(1);onChange(val);};
+    div.setValue=(v)=>{val=v;span.innerText=v.toFixed(1);};
+    div.append(dec,span,inc);
+    return div;
+  }
+
+  // Build Activities tab content
+  function buildWorkerActivitiesTab(){
+    const unlockedActs = activities.filter(a=>!a.locked);
+    if(unlockedActs.length===0) return '<div class="empty-state" style="padding:32px;"><i class="fas fa-tasks"></i>No activities available</div>';
+    return unlockedActs.map(act=>`
+      <div class="activity-card" style="margin-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--fire);flex-shrink:0;"></div>
+          <span style="font-weight:600;font-size:0.82rem;">${escapeHtml(act.name)}</span>
+        </div>
+        ${act.subActivities&&act.subActivities.length>0?`
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-left:18px;">
+          ${act.subActivities.map(s=>`<span class="chip chip-blue" style="font-size:0.65rem;">${escapeHtml(s)}</span>`).join('')}
+        </div>`:'<div style="font-size:0.7rem;color:var(--text-3);margin-left:18px;">No sub-activities</div>'}
+        ${act.lockedProjects&&act.lockedProjects.length>0?`
+        <div style="margin-top:8px;margin-left:18px;font-size:0.65rem;color:var(--gold);"><i class="fas fa-lock" style="margin-right:4px;"></i>Locked for: ${act.lockedProjects.map(p=>escapeHtml(p)).join(', ')}</div>`:''}
+      </div>`).join('');
+  }
+
+  // Build Workers tab content
+  function buildWorkerWorkersTab(){
+    const todayEntries = jobEntries.filter(e=>e.date===today);
+    if(workers.length===0) return '<div class="empty-state" style="padding:32px;"><i class="fas fa-users"></i>No workers found</div>';
+    return `<table class="pro-table">
+      <thead><tr><th>Worker</th><th>Today</th><th>Total</th></tr></thead>
+      <tbody>${workers.map(w=>{
+        const todayH=getWorkerDailyHours(w.name,today);
+        const totalH=jobEntries.filter(e=>e.workerName===w.name).reduce((s,e)=>s+(e.hours||0),0);
+        const isMe=w.name===worker.name;
+        return `<tr style="${isMe?'background:var(--fire-soft);':''}" >
+          <td><span style="${isMe?'color:var(--fire);font-weight:700;':''}">${escapeHtml(w.name)}${isMe?' <span style="font-size:0.62rem;">(you)</span>':''}</span></td>
+          <td><span class="chip chip-fire" style="font-size:0.65rem;">${todayH.toFixed(1)}h</span></td>
+          <td><span class="chip chip-gold" style="font-size:0.65rem;">${totalH.toFixed(1)}h</span></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  }
+
+  const pctColor = pct>=100?'var(--fire)':pct>=70?'var(--gold)':'var(--green)';
+
+  document.getElementById('appRoot').innerHTML=`
+    <div class="page-body fade-up safe-bottom">
+    <div class="mobile-shell">
+
+      <!-- ── FILL BAR (always visible on top) ── -->
+      <div class="panel" style="margin-bottom:14px;padding:0;overflow:hidden;">
+        <div style="padding:14px 18px 10px;display:flex;align-items:center;justify-content:space-between;">
+          <div>
+            <div style="font-size:0.65rem;color:var(--text-3);font-weight:700;letter-spacing:0.08em;margin-bottom:4px;">DAILY HOURS FILL — ${today}</div>
+            <div style="display:flex;align-items:baseline;gap:6px;">
+              <span style="font-family:'Space Grotesk',sans-serif;font-size:1.6rem;font-weight:700;color:${pctColor};">${booked.toFixed(1)}</span>
+              <span style="font-size:0.8rem;color:var(--text-3);">/ 7.5h</span>
+              <span style="font-size:0.72rem;color:var(--text-2);margin-left:6px;">(${remaining.toFixed(1)}h left)</span>
+            </div>
+          </div>
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:1.3rem;font-weight:700;color:${pctColor};">${pct.toFixed(0)}%</div>
+        </div>
+        <div style="height:8px;background:var(--bg-elevated);">
+          <div id="hoursProgressBar" style="height:100%;width:${pct}%;background:linear-gradient(90deg,${pct>=100?'var(--fire),#FF8C42':pct>=70?'var(--gold),#E8960F':'var(--green),#16A34A'});transition:width 0.5s ease;"></div>
+        </div>
+        <div style="padding:8px 18px;display:flex;gap:16px;">
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.68rem;color:var(--text-3);"><span style="width:8px;height:8px;border-radius:2px;background:var(--fire-soft);border:1px solid var(--fire);display:inline-block;"></span>Booked: ${booked.toFixed(1)}h</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.68rem;color:var(--text-3);"><span style="width:8px;height:8px;border-radius:2px;background:var(--green-soft);border:1px solid var(--green);display:inline-block;"></span>Remaining: ${remaining.toFixed(1)}h</div>
+        </div>
+      </div>
+
+      <!-- ── TABS ── -->
+      <div class="tab-bar" style="margin-bottom:16px;">
+        <button class="tab-btn ${_workerTab==='log'?'active':''}" onclick="_workerTab='log';renderWorkerDashboard();"><i class="fas fa-plus-circle" style="margin-right:5px;font-size:0.7rem;"></i>Log Hours</button>
+        <button class="tab-btn ${_workerTab==='activities'?'active':''}" onclick="_workerTab='activities';renderWorkerDashboard();"><i class="fas fa-tasks" style="margin-right:5px;font-size:0.7rem;"></i>Activities</button>
+        <button class="tab-btn ${_workerTab==='workers'?'active':''}" onclick="_workerTab='workers';renderWorkerDashboard();"><i class="fas fa-users" style="margin-right:5px;font-size:0.7rem;"></i>Workers</button>
+      </div>
+
+      <!-- ── TAB: LOG HOURS ── -->
+      ${_workerTab==='log'?`
+      <div class="panel section-gap">
+        <div class="panel-header">
+          <div class="panel-title"><i class="fas fa-plus-circle"></i>Log Hours</div>
+          <span class="chip chip-blue"><i class="fas fa-calendar"></i>${today}</span>
+        </div>
+        <div class="panel-body">
+          <div id="dynamicRowsContainer"></div>
+          <div class="hours-summary" style="margin-top:14px;">
+            <div class="summary-row"><span style="color:var(--text-2);">Total new hours</span><span class="summary-val" id="totalNewHours">0.0</span></div>
+            <div class="summary-row"><span style="color:var(--text-2);">Remaining after submit</span><span class="summary-val" id="remainingAfter">${remaining.toFixed(1)}</span></div>
+            <div id="warningMsg" style="font-size:0.72rem;color:#F87171;min-height:16px;"></div>
+            <div class="sticky-cta">
+              <button id="submitMultiBtn" class="btn btn-fire btn-lg btn-full" disabled>
+                <i class="fas fa-paper-plane"></i>Submit for Approval
+              </button>
+              <div style="text-align:center;margin-top:8px;font-size:0.7rem;color:var(--text-3);">
+                Entries go to admin for review before being saved.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-2" style="margin-top:16px;">
+        <div class="panel">
+          <div class="panel-header"><div class="panel-title"><i class="fas fa-calendar-day"></i>Today's Approved</div></div>
+          <div id="compactTodayEntries" style="padding:0 0 4px;"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><div class="panel-title"><i class="fas fa-clock" style="color:var(--gold);"></i>Pending Approval</div></div>
+          <div id="workerPendingEntries" style="padding:0 0 4px;"></div>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:16px;">
+        <div class="panel-header"><div class="panel-title"><i class="fas fa-history"></i>My Approved History</div></div>
+        <div class="tbl-scroll" style="max-height:220px;">
+          <div id="workerFullHistory"></div>
+        </div>
+      </div>`:''}
+
+      <!-- ── TAB: ACTIVITIES ── -->
+      ${_workerTab==='activities'?`
+      <div class="panel fade-up">
+        <div class="panel-header">
+          <div class="panel-title"><i class="fas fa-tasks"></i>Available Activities</div>
+          <span class="chip chip-blue">${activities.filter(a=>!a.locked).length} active</span>
+        </div>
+        <div class="panel-body">
+          ${buildWorkerActivitiesTab()}
+        </div>
+      </div>`:''}
+
+      <!-- ── TAB: WORKERS ── -->
+      ${_workerTab==='workers'?`
+      <div class="panel fade-up">
+        <div class="panel-header">
+          <div class="panel-title"><i class="fas fa-users"></i>Team (${workers.length})</div>
+        </div>
+        <div class="tbl-scroll">
+          ${buildWorkerWorkersTab()}
+        </div>
+      </div>`:''}
+
+    </div>
+    </div>`;
+
+  if(_workerTab==='log'){
+    refreshRowsUI();
+    updateTotals();
+
+    const refreshTables=()=>{
+      const todayEntries=jobEntries.filter(e=>e.workerName===worker.name&&e.date===today);
+      const compactDiv=document.getElementById('compactTodayEntries');
+      if(compactDiv){
+        if(todayEntries.length===0) compactDiv.innerHTML='<div class="empty-state"><i class="fas fa-inbox"></i>No approved entries today</div>';
+        else compactDiv.innerHTML=`<table class="pro-table">${todayEntries.map(e=>`<tr><td>${escapeHtml(e.activity)}${e.subActivity?' <span style="color:var(--text-3);">('+escapeHtml(e.subActivity)+')</span>':''}</td><td style="text-align:right;"><span class="chip chip-fire">${e.hours.toFixed(1)}h</span></td></tr>`).join('')}</table>`;
+      }
+      // pending entries for this worker
+      const myPending = pendingEntries.filter(e=>e.workerName===worker.name&&e.status==='pending');
+      const pendDiv = document.getElementById('workerPendingEntries');
+      if(pendDiv){
+        if(myPending.length===0) pendDiv.innerHTML='<div class="empty-state"><i class="fas fa-check-circle" style="color:var(--green);"></i>No pending submissions</div>';
+        else pendDiv.innerHTML=`<table class="pro-table"><thead><tr><th>Date</th><th>Project</th><th>Activity</th><th>Hrs</th><th>Status</th></tr></thead><tbody>${myPending.map(e=>`<tr><td>${e.date}</td><td>${escapeHtml(e.projectName)}</td><td>${escapeHtml(e.activity)}</td><td>${e.hours.toFixed(1)}h</td><td><span class="chip chip-gold" style="font-size:0.62rem;"><i class="fas fa-clock"></i>Pending</span></td></tr>`).join('')}</tbody></table>`;
+      }
+      const allHistory=jobEntries.filter(e=>e.workerName===worker.name).sort((a,b)=>b.date.localeCompare(a.date));
+      const historyDiv=document.getElementById('workerFullHistory');
+      if(historyDiv){
+        if(allHistory.length===0) historyDiv.innerHTML='<div class="empty-state"><i class="fas fa-history"></i>No history</div>';
+        else historyDiv.innerHTML=`<table class="pro-table"><thead><tr><th>Date</th><th>Project</th><th>Activity</th><th>Hrs</th></tr></thead><tbody>${allHistory.map(e=>`<tr><td>${e.date}</td><td>${escapeHtml(e.projectName)}</td><td>${escapeHtml(e.activity)}</td><td><span class="chip chip-gold" style="font-size:0.62rem;">${e.hours.toFixed(1)}h</span></td></tr>`).join('')}</tbody></table>`;
+      }
+    };
+    refreshTables();
+
+    document.getElementById('submitMultiBtn')?.addEventListener('click', async ()=>{
+      const total=rows.reduce((s,r)=>s+(r.subActs||[]).reduce((ss,sa)=>ss+(sa.hours||0),0),0);
+      const avail=getRemainingHours(worker.name,today);
+      if(total>avail){showToast('Exceeds remaining hours','error');return;}
+      let count=0;
+      for(let r of rows){
+        if(!r.project||!r.mainAct||(r.subActs||[]).length===0){showToast('Fill all fields for each entry','error');return;}
+        for(let sa of r.subActs){
+          await submitPendingEntry(worker.name,r.project,r.mainAct,sa.name==='—'?'':sa.name,sa.hours,today,sa.detail||'');
+          count++;
+        }
+      }
+      showToast(`${count} entr${count===1?'y':'ies'} submitted for approval!`);
+      _workerTab='log';
+      renderWorkerDashboard();
+    });
+  }
+}
+
+// ── INIT ──
+(async ()=>{
+  loadData();
+  var initOk = await initJobCardSupabase();
+  var synced = false;
+  if(initOk){
+    synced = await loadFromCloud();
+  } else {
+    showToast('Supabase library blocked — local mode', 'info');
+  }
+  renderWorkerLogin();
+  if(synced){ showToast('Synced from server', 'success'); }
+
+  // Mobile: refresh from Supabase when returning to the tab
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState === 'visible' && isCloudReady()) {
+      loadFromCloud().then(function(){
+        if (currentMode === 'worker' && loggedInWorker) renderWorkerDashboard();
+        else if (currentMode === 'admin' && adminLoggedIn) renderAdminSection(activeAdminSection);
+        else if (currentMode === 'worker' && !loggedInWorker) renderWorkerLogin();
+      });
+    }
+  });
+})();
+</script>
+</body>
+</html>
