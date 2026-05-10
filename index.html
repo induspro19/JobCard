@@ -7,7 +7,6 @@
   <meta name="theme-color" content="#0B0D14">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <!-- Supabase (UMD) for best mobile compatibility -->
   <script defer src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -426,7 +425,6 @@
 </head>
 <body>
 
-<!-- ── SIDEBAR (hidden until admin logged in) ── -->
 <aside class="sidebar" id="adminSidebar" style="display:none;">
   <div class="sidebar-logo">
     <div class="logo-badge"><i class="fas fa-fire-extinguisher" style="color:white;font-size:1rem;"></i></div>
@@ -464,9 +462,7 @@
   </div>
 </aside>
 
-<!-- ── MAIN ── -->
 <div class="main-content" id="mainContent">
-  <!-- TOPBAR -->
   <div class="topbar" id="topbar" style="display:none;">
     <div>
       <div class="page-title" id="topbarTitle">Dashboard</div>
@@ -475,7 +471,6 @@
     <div class="topbar-right" id="topbarRight"></div>
   </div>
 
-  <!-- APP ROOT -->
   <div id="appRoot" style="flex:1;"></div>
 
   <div class="footer-note" id="footerNote">Admin: admin2025 &nbsp;·&nbsp; Daily limit: 7.5h &nbsp;·&nbsp; Sub‑activities auto‑load</div>
@@ -735,7 +730,7 @@ async function cloudUpsertActivities(){
       name: _jcUpper(a.name),
       locked: !!a.locked,
       locked_projects: Array.isArray(a.lockedProjects) ? a.lockedProjects.map(_jcUpper) : [],
-      sub_activities: Array.isArray(a.subActivities) ? a.subActivities.map(_jcUpper) : []
+      sub_activities: Array.isArray(a.sub_activities) ? a.sub_activities.map(_jcUpper) : []
     }));
   try{
     const res = await sb().from('jc_activities').upsert(payload, { onConflict: 'name' });
@@ -1426,9 +1421,8 @@ function buildApprovalQueue(){
 function attachSectionEvents(section){
   if(section==='workers'){
     document.getElementById('addWorkerBtn')?.addEventListener('click', ()=>{
-      // Adds a temporary worker locally
       workers.push({name:'New Worker',pin:'0000'});
-      renderAdminSection('workers'); 
+      renderAdminSection('workers');
     });
 
     document.getElementById('saveWorkersBtn')?.addEventListener('click', async ()=>{
@@ -1436,7 +1430,6 @@ function attachSectionEvents(section){
       document.querySelectorAll('.worker-name-edit').forEach((inp,i)=>{
         const name = inp.value.trim();
         const pin = document.querySelector(`.worker-pin-edit[data-idx="${i}"]`).value.trim();
-        // ONLY save if you renamed "New Worker" to a real name
         if(name && name !== "New Worker" && pin) nw.push({name, pin});
       });
       
@@ -1454,17 +1447,18 @@ function attachSectionEvents(section){
       const idx = parseInt(btn.dataset.idx);
       const workerName = workers[idx].name;
       
-      // Physically delete from Supabase if it's a real entry
-      if(isCloudReady() && workerName !== "New Worker") {
-        await sb().from('jc_workers').delete().eq('name', workerName);
+      if(confirm(`Are you sure you want to delete ${workerName}?`)) {
+        if(isCloudReady() && workerName !== "New Worker") {
+          await sb().from('jc_workers').delete().eq('name', workerName);
+        }
+        workers.splice(idx, 1);
+        saveWorkers();
+        showToast('Worker deleted');
+        renderAdminSection('workers');
       }
-      
-      workers.splice(idx, 1);
-      saveWorkers();
-      showToast('Worker removed');
-      renderAdminSection('workers');
     }));
   }
+
   if(section==='projects'){
     document.getElementById('addProjectBtn')?.addEventListener('click',async ()=>{
       const nm=document.getElementById('newProjName').value.trim();
@@ -1518,7 +1512,8 @@ function attachSectionEvents(section){
       })();
     }));
   }
-if(section==='activities'){
+
+  if(section==='activities'){
     document.getElementById('addActivityBtn')?.addEventListener('click', ()=>{
       activities.push({name:'New Activity',locked:false,subActivities:[],lockedProjects:[]});
       renderAdminSection('activities');
@@ -1528,7 +1523,6 @@ if(section==='activities'){
       const na=[];
       document.querySelectorAll('.act-name-edit').forEach((inp,i)=>{
         const name = inp.value.trim();
-        // Prevents empty "New Activity" from being saved to the database
         if(name && name !== "New Activity") {
           const locked = document.querySelector(`.act-lock-chk[data-idx="${i}"]`).checked;
           const subs = document.querySelector(`.act-subs-input[data-idx="${i}"]`).value.split(',').map(s=>s.trim()).filter(s=>s);
@@ -1552,30 +1546,24 @@ if(section==='activities'){
       const idx = parseInt(btn.dataset.idx);
       const actName = activities[idx].name;
 
-      if(isCloudReady() && actName !== "New Activity") {
-        await sb().from('jc_activities').delete().eq('name', actName);
-      }
-
-      activities.splice(idx, 1);
-      saveActivities();
-      showToast('Activity removed');
-      renderAdminSection('activities');
-    }));
-  }
-    document.querySelectorAll('.removeActBtn').forEach(btn=>btn.addEventListener('click',()=>{
-      (async ()=>{
-        activities.splice(parseInt(btn.dataset.idx),1);
+      if(confirm(`Delete activity "${actName}"?`)){
+        if(isCloudReady() && actName !== "New Activity") {
+          await sb().from('jc_activities').delete().eq('name', actName);
+        }
+        activities.splice(idx, 1);
         saveActivities();
-        await cloudUpsertActivities();
+        showToast('Activity removed');
         renderAdminSection('activities');
-      })();
+      }
     }));
   }
+
   if(section==='projecthours'){
     document.querySelectorAll('.export-proj-btn').forEach(btn=>btn.addEventListener('click',()=>{
       doExportExcelForProject(btn.dataset.proj);
     }));
   }
+
   if(section==='attendance'){
     document.getElementById('refreshAdminDate')?.addEventListener('click',()=>{
       const nd=document.getElementById('adminDatePicker').value;
@@ -1591,7 +1579,6 @@ if(section==='activities'){
   }
 
   if(section==='addentry'){
-    // setup hour stepper
     let _adminEntryHours = 7.5;
     const stepWrap = document.getElementById('adminEntryStepperWrap');
     if(stepWrap){
@@ -1631,7 +1618,6 @@ if(section==='activities'){
   }
 
   if(section==='approvalqueue'){
-    // Approve All
     document.getElementById('approveAllBtn')?.addEventListener('click', async ()=>{
       if(!confirm('Approve all pending entries as-is?')) return;
       const toApprove = pendingEntries.filter(e=>e.status==='pending');
@@ -1640,7 +1626,6 @@ if(section==='activities'){
       renderAdminSection('approvalqueue');
     });
 
-    // Per-row approve
     document.querySelectorAll('.aq-approve-btn').forEach(btn=>{
       btn.addEventListener('click', async ()=>{
         const id = btn.dataset.id;
@@ -1652,7 +1637,6 @@ if(section==='activities'){
       });
     });
 
-    // Per-row reject
     document.querySelectorAll('.aq-reject-btn').forEach(btn=>{
       btn.addEventListener('click', async ()=>{
         if(!confirm('Reject and discard this entry?')) return;
@@ -1785,7 +1769,6 @@ function buildSimpleStepper(initial, onChange){
 function doExportExcelForProject(projName){
   const wb=XLSX.utils.book_new();
   const entries=jobEntries.filter(e=>e.projectName===projName);
-  // Summary sheet
   const actMap={};
   entries.forEach(e=>{
     const act=e.activity||'Unknown';
@@ -1796,7 +1779,6 @@ function doExportExcelForProject(projName){
   const summaryRows=Object.values(actMap).map(a=>({'Activity':a.activity,'Total Hours':a.totalHours.toFixed(2)}));
   const wsSummary=XLSX.utils.json_to_sheet(summaryRows);
   XLSX.utils.book_append_sheet(wb,wsSummary,'Summary');
-  // Detail sheet
   const detailRows=entries.map(e=>({'Date':e.date,'Worker':e.workerName,'Activity':e.activity,'Sub-Activity':e.subActivity||'','Hours':e.hours.toFixed(2),'Remark':e.detailReason||''}));
   const wsDetail=XLSX.utils.json_to_sheet(detailRows);
   XLSX.utils.book_append_sheet(wb,wsDetail,'Detail');
@@ -1806,7 +1788,6 @@ function doExportExcelForProject(projName){
 
 function doExportExcel(){
   const wb=XLSX.utils.book_new();
-  // Summary sheet: all projects
   const summaryRows=[];
   const projMap=new Map();
   jobEntries.forEach(e=>{
@@ -1820,16 +1801,13 @@ function doExportExcel(){
       summaryRows.push({Project:proj,Activity:act,"Total Hours":hrs.toFixed(2)});
   const wsSummary=XLSX.utils.json_to_sheet(summaryRows);
   XLSX.utils.book_append_sheet(wb,wsSummary,'All Projects');
-  // One sheet per project
   for(let[proj,actMap]of projMap.entries()){
     const projRows=[];
     for(let[act,hrs]of actMap.entries())
       projRows.push({Activity:act,"Total Hours":hrs.toFixed(2)});
-    // detail rows
     const details=jobEntries.filter(e=>e.projectName===proj).map(e=>({Date:e.date,Worker:e.workerName,Activity:e.activity,"Sub-Activity":e.subActivity||'',"Hours":e.hours.toFixed(2),Remark:e.detailReason||''}));
     const sheetName=proj.replace(/[\/:*?\[\]]/g,'').slice(0,28);
     const ws=XLSX.utils.json_to_sheet(projRows);
-    // add blank row then details
     XLSX.utils.sheet_add_aoa(ws,[[]],{origin:-1});
     XLSX.utils.sheet_add_json(ws,details,{origin:-1,skipHeader:false});
     XLSX.utils.book_append_sheet(wb,ws,sheetName);
@@ -1861,9 +1839,13 @@ function renderWorkerDashboard(){
   const remaining=getRemainingHours(worker.name,today);
   const pct=Math.min(100,(booked/7.5)*100);
   const activeProjectsList=getActiveProjects().map(p=>p.name);
+  
+  // Guard Check for UI
+  const attMap = getAttendanceMap()[today] || {};
+  const isPresent = attMap[worker.name] === true;
+
   setTopbar(worker.name, `Today: ${today}`, 'worker');
 
-  // rows: [{project, mainAct, subActs:[name,...], hours, detail}]
   let rows=[{project:'',mainAct:'',subActs:[],hours:Math.min(7.5,remaining),detail:''}];
 
   function getRowActivities(proj){return getUnlockedActivities(proj||null);}
@@ -1944,7 +1926,6 @@ function renderWorkerDashboard(){
     html+=`<button id="addRowBtn" class="btn btn-ghost" style="width:100%;justify-content:center;margin-top:4px;border-style:dashed;"><i class="fas fa-plus"></i>Add Another Entry</button>`;
     container.innerHTML=html;
 
-    // Mount hour steppers (one per row)
     rows.forEach((row,idx)=>{
       const ph=document.getElementById(`hourStepper-${idx}`);
       if(ph){
@@ -1953,7 +1934,6 @@ function renderWorkerDashboard(){
       }
     });
 
-    // Sub-pill toggle
     document.querySelectorAll('.sub-pill-btn').forEach(btn=>btn.addEventListener('click',()=>{
       const idx=parseInt(btn.dataset.rowidx);
       const s=btn.dataset.sub;
@@ -1963,14 +1943,12 @@ function renderWorkerDashboard(){
       refreshRowsUI(); updateTotals();
     }));
 
-    // Remove row
     document.querySelectorAll('.removeRowBtn').forEach(btn=>btn.addEventListener('click',()=>{
       const idx=parseInt(btn.dataset.idx);
       if(rows.length>1){rows.splice(idx,1);refreshRowsUI();updateTotals();}
       else showToast('At least one entry needed','error');
     }));
 
-    // Project / Activity change
     document.querySelectorAll('.row-project').forEach(el=>el.addEventListener('change',e=>{
       const idx=parseInt(e.target.dataset.idx);
       rows[idx].project=e.target.value; rows[idx].mainAct=''; rows[idx].subActs=[];
@@ -1982,7 +1960,6 @@ function renderWorkerDashboard(){
       refreshRowsUI(); updateTotals();
     }));
 
-    // Remark
     document.querySelectorAll('.row-detail').forEach(el=>el.addEventListener('input',e=>{
       const idx=parseInt(e.target.dataset.idx);
       rows[idx].detail=e.target.value;
@@ -1997,7 +1974,6 @@ function renderWorkerDashboard(){
   const updateTotals=()=>{
     const total=rows.reduce((s,r)=>s+(r.hours||0),0);
     const avail=getRemainingHours(worker.name,today);
-    // valid: project, activity selected, at least one sub picked (or no subs exist), hours>0
     const allValid=rows.every(r=>{
       if(!r.project||!r.mainAct||r.hours<=0) return false;
       const subList=getSubList(r.mainAct,r.project);
@@ -2009,7 +1985,7 @@ function renderWorkerDashboard(){
     const remEl=document.getElementById('remainingAfter');
     if(totalEl)totalEl.textContent=total.toFixed(1);
     if(remEl)remEl.textContent=(avail-total).toFixed(1);
-    if(btn)btn.disabled=(!allValid||total===0||total>avail);
+    if(btn)btn.disabled=(!allValid||total===0||total>avail || !isPresent);
     const bar=document.getElementById('hoursProgressBar');
     if(bar)bar.style.width=Math.min(100,((booked+total)/7.5)*100)+'%';
   };
@@ -2027,7 +2003,6 @@ function renderWorkerDashboard(){
     return div;
   }
 
-  // Build Activities tab content
   function buildWorkerActivitiesTab(){
     const unlockedActs = activities.filter(a=>!a.locked);
     if(unlockedActs.length===0) return '<div class="empty-state" style="padding:32px;"><i class="fas fa-tasks"></i>No activities available</div>';
@@ -2046,7 +2021,6 @@ function renderWorkerDashboard(){
       </div>`).join('');
   }
 
-  // Build Workers tab content
   function buildWorkerWorkersTab(){
     const todayEntries = jobEntries.filter(e=>e.date===today);
     if(workers.length===0) return '<div class="empty-state" style="padding:32px;"><i class="fas fa-users"></i>No workers found</div>';
@@ -2071,7 +2045,6 @@ function renderWorkerDashboard(){
     <div class="page-body fade-up safe-bottom">
     <div class="mobile-shell">
 
-      <!-- ── FILL BAR (always visible on top) ── -->
       <div class="panel" style="margin-bottom:14px;padding:0;overflow:hidden;">
         <div style="padding:14px 18px 10px;display:flex;align-items:center;justify-content:space-between;">
           <div>
@@ -2093,14 +2066,12 @@ function renderWorkerDashboard(){
         </div>
       </div>
 
-      <!-- ── TABS ── -->
       <div class="tab-bar" style="margin-bottom:16px;">
         <button class="tab-btn ${_workerTab==='log'?'active':''}" onclick="_workerTab='log';renderWorkerDashboard();"><i class="fas fa-plus-circle" style="margin-right:5px;font-size:0.7rem;"></i>Log Hours</button>
         <button class="tab-btn ${_workerTab==='activities'?'active':''}" onclick="_workerTab='activities';renderWorkerDashboard();"><i class="fas fa-tasks" style="margin-right:5px;font-size:0.7rem;"></i>Activities</button>
         <button class="tab-btn ${_workerTab==='workers'?'active':''}" onclick="_workerTab='workers';renderWorkerDashboard();"><i class="fas fa-users" style="margin-right:5px;font-size:0.7rem;"></i>Workers</button>
       </div>
 
-      <!-- ── TAB: LOG HOURS ── -->
       ${_workerTab==='log'?`
       <div class="panel section-gap">
         <div class="panel-header">
@@ -2114,11 +2085,12 @@ function renderWorkerDashboard(){
             <div class="summary-row"><span style="color:var(--text-2);">Remaining after submit</span><span class="summary-val" id="remainingAfter">${remaining.toFixed(1)}</span></div>
             <div id="warningMsg" style="font-size:0.72rem;color:#F87171;min-height:16px;"></div>
             <div class="sticky-cta">
-              <button id="submitMultiBtn" class="btn btn-fire btn-lg btn-full" disabled>
-                <i class="fas fa-paper-plane"></i>Submit for Approval
+              <button id="submitMultiBtn" class="btn btn-fire btn-lg btn-full" ${!isPresent ? 'style="opacity: 0.5; cursor: not-allowed; background: #444;"' : ''}>
+                <i class="fas ${isPresent ? 'fa-paper-plane' : 'fa-user-slash'}"></i>
+                ${isPresent ? 'Submit for Approval' : 'Attendance Required to Log'}
               </button>
               <div style="text-align:center;margin-top:8px;font-size:0.7rem;color:var(--text-3);">
-                Entries go to admin for review before being saved.
+                ${isPresent ? 'Entries go to admin for review before being saved.' : 'You are marked ABSENT. Contact Admin to fix attendance.'}
               </div>
             </div>
           </div>
@@ -2141,7 +2113,6 @@ function renderWorkerDashboard(){
         </div>
       </div>`:''}
 
-      <!-- ── TAB: ACTIVITIES ── -->
       ${_workerTab==='activities'?`
       <div class="panel fade-up">
         <div class="panel-header">
@@ -2153,7 +2124,6 @@ function renderWorkerDashboard(){
         </div>
       </div>`:''}
 
-      <!-- ── TAB: WORKERS ── -->
       ${_workerTab==='workers'?`
       <div class="panel fade-up">
         <div class="panel-header">
@@ -2178,7 +2148,6 @@ function renderWorkerDashboard(){
         if(todayEntries.length===0) compactDiv.innerHTML='<div class="empty-state"><i class="fas fa-inbox"></i>No approved entries today</div>';
         else compactDiv.innerHTML=`<table class="pro-table">${todayEntries.map(e=>`<tr><td>${escapeHtml(e.activity)}${e.subActivity?' <span style="color:var(--text-3);">('+escapeHtml(e.subActivity)+')</span>':''}</td><td style="text-align:right;"><span class="chip chip-fire">${e.hours.toFixed(1)}h</span></td></tr>`).join('')}</table>`;
       }
-      // pending entries for this worker
       const myPending = pendingEntries.filter(e=>e.workerName===worker.name&&e.status==='pending');
       const pendDiv = document.getElementById('workerPendingEntries');
       if(pendDiv){
@@ -2195,19 +2164,28 @@ function renderWorkerDashboard(){
     refreshTables();
 
     document.getElementById('submitMultiBtn')?.addEventListener('click', async ()=>{
-      const total=rows.reduce((s,r)=>s+(r.subActs||[]).reduce((ss,sa)=>ss+(sa.hours||0),0),0);
-      const avail=getRemainingHours(worker.name,today);
-      if(total>avail){showToast('Exceeds remaining hours','error');return;}
-      let count=0;
-      for(let r of rows){
-        if(!r.project||!r.mainAct||(r.subActs||[]).length===0){showToast('Fill all fields for each entry','error');return;}
-        for(let sa of r.subActs){
-          await submitPendingEntry(worker.name,r.project,r.mainAct,sa.name==='—'?'':sa.name,sa.hours,today,sa.detail||'');
-          count++;
-        }
+      if(!isPresent) {
+        showToast('You are marked ABSENT for today. You cannot book hours.', 'error');
+        return; 
       }
-      showToast(`${count} entr${count===1?'y':'ies'} submitted for approval!`);
-      _workerTab='log';
+      const total = rows.reduce((s,r)=>s+(r.hours||0),0);
+      const avail = getRemainingHours(worker.name, today);
+      if(total > avail){
+        showToast('Exceeds remaining hours', 'error');
+        return;
+      }
+      let count = 0;
+      for(let r of rows){
+        if(!r.project || !r.mainAct || r.hours <= 0){
+          showToast('Please fill all fields', 'error');
+          return;
+        }
+        const subText = r.subActs.join(", ");
+        await submitPendingEntry(worker.name, r.project, r.mainAct, subText, r.hours, today, r.detail || '');
+        count++;
+      }
+      showToast(`${count} entries submitted!`);
+      _workerTab = 'log';
       renderWorkerDashboard();
     });
   }
@@ -2218,21 +2196,14 @@ function renderWorkerDashboard(){
   loadData();
   var initOk = await initJobCardSupabase();
   var synced = false;
-  if(initOk){
-    synced = await loadFromCloud();
-  } else {
-    showToast('Supabase library blocked — local mode', 'info');
-  }
+  if(initOk){ synced = await loadFromCloud(); }
   renderWorkerLogin();
   if(synced){ showToast('Synced from server', 'success'); }
-
-  // Mobile: refresh from Supabase when returning to the tab
   document.addEventListener('visibilitychange', function(){
     if (document.visibilityState === 'visible' && isCloudReady()) {
       loadFromCloud().then(function(){
         if (currentMode === 'worker' && loggedInWorker) renderWorkerDashboard();
         else if (currentMode === 'admin' && adminLoggedIn) renderAdminSection(activeAdminSection);
-        else if (currentMode === 'worker' && !loggedInWorker) renderWorkerLogin();
       });
     }
   });
