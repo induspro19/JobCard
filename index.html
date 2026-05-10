@@ -2020,6 +2020,7 @@ function renderWorkerDashboard(){
         <button class="tab-btn ${_workerTab==='log'?'active':''}" onclick="_workerTab='log';renderWorkerDashboard();"><i class="fas fa-plus-circle" style="margin-right:5px;font-size:0.7rem;"></i>Log Hours</button>
         <button class="tab-btn ${_workerTab==='activities'?'active':''}" onclick="_workerTab='activities';renderWorkerDashboard();"><i class="fas fa-tasks" style="margin-right:5px;font-size:0.7rem;"></i>Activities</button>
         <button class="tab-btn ${_workerTab==='workers'?'active':''}" onclick="_workerTab='workers';renderWorkerDashboard();"><i class="fas fa-users" style="margin-right:5px;font-size:0.7rem;"></i>Workers</button>
+        <button class="tab-btn ${_workerTab==='changepin'?'active':''}" onclick="_workerTab='changepin';renderWorkerDashboard();"><i class="fas fa-key" style="margin-right:5px;font-size:0.7rem;"></i>Change PIN</button>
       </div>
 
       ${_workerTab==='log'?`
@@ -2078,6 +2079,36 @@ function renderWorkerDashboard(){
         <div class="tbl-scroll">${buildWorkerWorkersTab()}</div>
       </div>`:''}
 
+      ${_workerTab==='changepin'?`
+      <div class="panel fade-up">
+        <div class="panel-header">
+          <div class="panel-title"><i class="fas fa-key"></i>Change My PIN</div>
+        </div>
+        <div class="panel-body">
+          <div style="background:var(--blue-soft);border:1px solid rgba(59,130,246,0.2);border-radius:10px;padding:11px 15px;margin-bottom:20px;font-size:0.75rem;color:var(--blue);display:flex;align-items:center;gap:8px;">
+            <i class="fas fa-shield-alt"></i>
+            Your PIN is used to log in. Keep it private and memorable.
+          </div>
+          <div style="display:flex;flex-direction:column;gap:14px;max-width:320px;">
+            <div>
+              <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">CURRENT PIN</div>
+              <input type="password" id="pinOld" class="inp" placeholder="Enter your current PIN" autocomplete="current-password">
+            </div>
+            <div>
+              <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">NEW PIN</div>
+              <input type="password" id="pinNew" class="inp" placeholder="Enter new PIN" autocomplete="new-password">
+            </div>
+            <div>
+              <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">CONFIRM NEW PIN</div>
+              <input type="password" id="pinConfirm" class="inp" placeholder="Re-enter new PIN" autocomplete="new-password">
+            </div>
+            <button id="changePinBtn" class="btn btn-fire" style="margin-top:4px;">
+              <i class="fas fa-save"></i>Update PIN
+            </button>
+          </div>
+        </div>
+      </div>`:''}
+
     </div>
     </div>`;
 
@@ -2131,6 +2162,47 @@ function renderWorkerDashboard(){
         count++;
       }
       showToast(`${count} entries submitted!`);
+      _workerTab = 'log';
+      renderWorkerDashboard();
+    });
+  }
+
+  if(_workerTab==='changepin'){
+    document.getElementById('changePinBtn')?.addEventListener('click', async ()=>{
+      const oldPin     = document.getElementById('pinOld')?.value || '';
+      const newPin     = document.getElementById('pinNew')?.value?.trim() || '';
+      const confirmPin = document.getElementById('pinConfirm')?.value?.trim() || '';
+
+      if(oldPin !== worker.pin){
+        showToast('Current PIN is incorrect','error'); return;
+      }
+      if(!newPin){
+        showToast('New PIN cannot be empty','error'); return;
+      }
+      if(newPin === oldPin){
+        showToast('New PIN must be different from current PIN','error'); return;
+      }
+      if(newPin !== confirmPin){
+        showToast('New PINs do not match','error'); return;
+      }
+
+      const btn = document.getElementById('changePinBtn');
+      btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Saving…';
+
+      // Update in local state and session
+      const w = workers.find(x=>x.name===worker.name);
+      if(w) w.pin = newPin;
+      loggedInWorker.pin = newPin;
+      saveWorkers();
+
+      // Sync to cloud
+      if(isCloudReady()){
+        try{
+          await sb().from('jc_workers').update({pin: newPin}).eq('name', _jcUpper(worker.name));
+        }catch(e){ _jcHandleCloudError(e,'changePin'); }
+      }
+
+      showToast('PIN updated successfully!');
       _workerTab = 'log';
       renderWorkerDashboard();
     });
