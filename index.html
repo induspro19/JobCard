@@ -1425,32 +1425,44 @@ function buildApprovalQueue(){
 // ── ATTACH SECTION EVENTS ──
 function attachSectionEvents(section){
   if(section==='workers'){
-    document.getElementById('addWorkerBtn')?.addEventListener('click',async ()=>{
+    document.getElementById('addWorkerBtn')?.addEventListener('click', ()=>{
+      // Adds a temporary worker locally
       workers.push({name:'New Worker',pin:'0000'});
-      saveWorkers();
-      await cloudUpsertWorkers();
-      renderAdminSection('workers');
+      renderAdminSection('workers'); 
     });
-    document.getElementById('saveWorkersBtn')?.addEventListener('click',async ()=>{
+
+    document.getElementById('saveWorkersBtn')?.addEventListener('click', async ()=>{
       const nw=[];
       document.querySelectorAll('.worker-name-edit').forEach((inp,i)=>{
-        const name=inp.value.trim();
-        const pin=document.querySelector(`.worker-pin-edit[data-idx="${i}"]`).value.trim();
-        if(name&&pin)nw.push({name,pin});
+        const name = inp.value.trim();
+        const pin = document.querySelector(`.worker-pin-edit[data-idx="${i}"]`).value.trim();
+        // ONLY save if you renamed "New Worker" to a real name
+        if(name && name !== "New Worker" && pin) nw.push({name, pin});
       });
-      if(nw.length)workers=nw;
+      
+      workers = nw;
       saveWorkers();
-      await cloudUpsertWorkers();
-      showToast('Workers saved');
+      if(isCloudReady()) {
+        await cloudUpsertWorkers();
+        await loadFromCloud(); 
+      }
+      showToast('Workers updated');
       renderAdminSection('workers');
     });
-    document.querySelectorAll('.removeWorkerBtn').forEach(btn=>btn.addEventListener('click',()=>{
-      (async ()=>{
-        workers.splice(parseInt(btn.dataset.idx),1);
-        saveWorkers();
-        await cloudUpsertWorkers();
-        renderAdminSection('workers');
-      })();
+
+    document.querySelectorAll('.removeWorkerBtn').forEach(btn=>btn.addEventListener('click', async ()=>{
+      const idx = parseInt(btn.dataset.idx);
+      const workerName = workers[idx].name;
+      
+      // Physically delete from Supabase if it's a real entry
+      if(isCloudReady() && workerName !== "New Worker") {
+        await sb().from('jc_workers').delete().eq('name', workerName);
+      }
+      
+      workers.splice(idx, 1);
+      saveWorkers();
+      showToast('Worker removed');
+      renderAdminSection('workers');
     }));
   }
   if(section==='projects'){
@@ -1506,30 +1518,50 @@ function attachSectionEvents(section){
       })();
     }));
   }
-  if(section==='activities'){
-    document.getElementById('addActivityBtn')?.addEventListener('click',async ()=>{
+if(section==='activities'){
+    document.getElementById('addActivityBtn')?.addEventListener('click', ()=>{
       activities.push({name:'New Activity',locked:false,subActivities:[],lockedProjects:[]});
-      saveActivities();
-      await cloudUpsertActivities();
       renderAdminSection('activities');
     });
-    document.getElementById('saveActivitiesBtn')?.addEventListener('click',async ()=>{
+
+    document.getElementById('saveActivitiesBtn')?.addEventListener('click', async ()=>{
       const na=[];
       document.querySelectorAll('.act-name-edit').forEach((inp,i)=>{
-        const name=inp.value.trim();
-        const locked=document.querySelector(`.act-lock-chk[data-idx="${i}"]`).checked;
-        const subs=document.querySelector(`.act-subs-input[data-idx="${i}"]`).value.split(',').map(s=>s.trim()).filter(s=>s);
-        // collect per-project locks
-        const lockedProjects=[];
-        document.querySelectorAll(`.act-proj-lock-chk[data-actidx="${i}"]`).forEach(cb=>{if(cb.checked)lockedProjects.push(cb.dataset.proj);});
-        if(name)na.push({name,locked,lockedProjects,subActivities:subs});
+        const name = inp.value.trim();
+        // Prevents empty "New Activity" from being saved to the database
+        if(name && name !== "New Activity") {
+          const locked = document.querySelector(`.act-lock-chk[data-idx="${i}"]`).checked;
+          const subs = document.querySelector(`.act-subs-input[data-idx="${i}"]`).value.split(',').map(s=>s.trim()).filter(s=>s);
+          const lockedProjects = [];
+          document.querySelectorAll(`.act-proj-lock-chk[data-actidx="${i}"]`).forEach(cb=>{if(cb.checked)lockedProjects.push(cb.dataset.proj);});
+          na.push({name, locked, lockedProjects, subActivities:subs});
+        }
       });
-      if(na.length)activities=na;
+
+      activities = na;
       saveActivities();
-      await cloudUpsertActivities();
-      showToast('Activities saved');
+      if(isCloudReady()) {
+        await cloudUpsertActivities();
+        await loadFromCloud();
+      }
+      showToast('Activities updated');
       renderAdminSection('activities');
     });
+
+    document.querySelectorAll('.removeActBtn').forEach(btn=>btn.addEventListener('click', async ()=>{
+      const idx = parseInt(btn.dataset.idx);
+      const actName = activities[idx].name;
+
+      if(isCloudReady() && actName !== "New Activity") {
+        await sb().from('jc_activities').delete().eq('name', actName);
+      }
+
+      activities.splice(idx, 1);
+      saveActivities();
+      showToast('Activity removed');
+      renderAdminSection('activities');
+    }));
+  }
     document.querySelectorAll('.removeActBtn').forEach(btn=>btn.addEventListener('click',()=>{
       (async ()=>{
         activities.splice(parseInt(btn.dataset.idx),1);
