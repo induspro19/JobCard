@@ -2209,6 +2209,80 @@ function renderWorkerDashboard(){
   }
 }
 
+// ── REALTIME ──
+let _rtChannel = null;
+let _rtDebounceTimer = null;
+
+function _rtRefreshUI(label){
+  // Debounce multiple rapid changes into one re-render
+  clearTimeout(_rtDebounceTimer);
+  _rtDebounceTimer = setTimeout(async ()=>{
+    await loadFromCloud();
+    if(currentMode==='worker' && loggedInWorker){
+      renderWorkerDashboard();
+    } else if(currentMode==='admin' && adminLoggedIn){
+      renderAdminSection(activeAdminSection);
+    }
+    // Show a subtle live-update indicator (no toast spam)
+    _showLivePulse(label);
+  }, 350);
+}
+
+function _showLivePulse(label){
+  // Remove any existing pulse
+  const old = document.getElementById('_livePulse');
+  if(old) old.remove();
+  const el = document.createElement('div');
+  el.id = '_livePulse';
+  el.style.cssText = `position:fixed;bottom:24px;left:24px;z-index:9999;
+    background:var(--bg-elevated);border:1px solid rgba(34,197,94,0.3);
+    border-left:3px solid var(--green);
+    border-radius:10px;padding:10px 14px;font-size:0.75rem;
+    display:flex;align-items:center;gap:8px;color:var(--text-1);
+    box-shadow:0 8px 24px rgba(0,0,0,0.4);animation:fadeUp 0.25s ease both;
+    pointer-events:none;`;
+  el.innerHTML = `<i class="fas fa-circle" style="color:var(--green);font-size:0.5rem;"></i>Live update: ${escapeHtml(label||'data refreshed')}`;
+  document.body.appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; el.style.transition='opacity 0.4s'; setTimeout(()=>el.remove(),400); }, 2200);
+}
+
+function setupRealtimeSubscriptions(){
+  if(!isCloudReady()) return;
+  // Clean up existing channel
+  if(_rtChannel){
+    try{ sb().removeChannel(_rtChannel); }catch(_e){}
+    _rtChannel = null;
+  }
+
+  const tables = [
+    { table:'jc_entries',         label:'entries' },
+    { table:'jc_pending_entries', label:'pending entries' },
+    { table:'jc_workers',         label:'workers' },
+    { table:'jc_projects',        label:'projects' },
+    { table:'jc_activities',      label:'activities' },
+    { table:'jc_attendance',      label:'attendance' }
+  ];
+
+  try{
+    _rtChannel = sb().channel('jc_all_changes');
+    tables.forEach(({ table, label })=>{
+      _rtChannel.on('postgres_changes',
+        { event:'*', schema:'public', table },
+        ()=>{ _rtRefreshUI(label); }
+      );
+    });
+    _rtChannel.subscribe((status)=>{
+      if(status === 'SUBSCRIBED'){
+        console.log('[JC] Realtime subscribed — live updates active');
+      } else if(status === 'CHANNEL_ERROR' || status === 'TIMED_OUT'){
+        console.warn('[JC] Realtime issue, will rely on visibility polling:', status);
+      }
+    });
+  }catch(e){
+    console.warn('[JC] Realtime setup failed:', e);
+  }
+}
+
 // ── INIT ──
 (async ()=>{
   loadData();
@@ -2218,8 +2292,14 @@ function renderWorkerDashboard(){
   renderWorkerLogin();
   if(synced) showToast('Synced from server','success');
 
+  // Start realtime subscriptions for instant live updates
+  if(initOk) setupRealtimeSubscriptions();
+
+  // Fallback: re-subscribe + refresh when tab becomes visible again
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState==='visible' && isCloudReady()){
+      // Re-subscribe if channel dropped
+      if(!_rtChannel) setupRealtimeSubscriptions();
       loadFromCloud().then(()=>{
         if(currentMode==='worker' && loggedInWorker) renderWorkerDashboard();
         else if(currentMode==='admin' && adminLoggedIn) renderAdminSection(activeAdminSection);
