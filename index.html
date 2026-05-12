@@ -477,7 +477,7 @@ let activeAdminSection = "overview";
 function getToday() { return new Date().toISOString().split('T')[0]; }
 
 var JC_SUPABASE_URL = 'https://duikfskqbacackelieux.supabase.co';
-var JC_SUPABASE_KEY = 'sb_publishable_YpdpFwDc3uQY27mK_yghYQ_LLiv7IQe';
+var JC_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR1aWtmc2txYmFjYWNrZWxpZXV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MTA0ODIsImV4cCI6MjA3OTE4NjQ4Mn0.IST84GYs9-5eOGmx485XPqDAwfp0Jdw5MHAjzUYTUUA';
 
 function _loadScript(src){
   return new Promise(function(resolve, reject){
@@ -786,7 +786,7 @@ async function approvePendingEntry(pendingId, editedData){
   await addEntry(merged.workerName,merged.projectName,merged.activity,merged.subActivity,merged.hours,merged.date,merged.detailReason);
   pendingEntries = pendingEntries.filter(e=>String(e.id)!==String(pendingId));
   savePending();
-  if(isCloudReady() && !String(pendingId).startsWith('pnd_')){
+  if(isCloudReady()){
     try{
       await sb().from('jc_pending_entries').update({status:'approved',reviewed_at:new Date().toISOString(),reviewed_by:'Admin'}).eq('id',pendingId);
     }catch(e){ _jcHandleCloudError(e,'approvePendingEntry'); }
@@ -796,7 +796,7 @@ async function approvePendingEntry(pendingId, editedData){
 async function rejectPendingEntry(pendingId){
   pendingEntries = pendingEntries.filter(e=>String(e.id)!==String(pendingId));
   savePending();
-  if(isCloudReady() && !String(pendingId).startsWith('pnd_')){
+  if(isCloudReady()){
     try{
       await sb().from('jc_pending_entries').update({status:'rejected',reviewed_at:new Date().toISOString(),reviewed_by:'Admin'}).eq('id',pendingId);
     }catch(e){ _jcHandleCloudError(e,'rejectPendingEntry'); }
