@@ -519,15 +519,17 @@ const isCloudReady = () => !!sb() && window.__jcCloudDisabled !== true;
 
 function _jcDisableCloudOnce(context, err){
   window.__jcCloudDisabled = true;
-  console.warn('Cloud disabled:', context, err);
+  console.warn('Cloud disabled (missing tables):', context, err);
   showToast('Cloud tables missing — using local mode', 'info');
 }
 function _jcHandleCloudError(err, context){
-  const msg = err?.message || err?.details || '';
-  if(String(msg).toLowerCase().includes('could not find the table') || String(msg).toLowerCase().includes('schema cache')){
+  const msg = (err?.message || err?.details || err?.hint || String(err) || '').toLowerCase();
+  // Only permanently disable cloud if tables literally don't exist
+  if(msg.includes('could not find the table') || msg.includes('schema cache')){
     _jcDisableCloudOnce(context, err); return true;
   }
-  console.error('Supabase error:', context, err);
+  // For all other errors: log and show toast, but DO NOT disable cloud permanently
+  console.error('Supabase error [' + context + ']:', err);
   return false;
 }
 function _jcUpper(s){ return (s||'').toString().trim(); }
@@ -560,8 +562,8 @@ async function loadFromCloud(){
       sb().from('jc_attendance').select('*').order('log_date',{ascending:false}).limit(5000),
       sb().from('jc_pending_entries').select('*').order('submitted_at',{ascending:false}).limit(2000)
     ]);
-    const loadErr = wRes.error || pRes.error || aRes.error || eRes.error || attRes.error;
-    if(loadErr){ if(!_jcHandleCloudError(loadErr,'loadFromCloud')) showToast('Cloud load failed','error'); return false; }
+    const loadErr = wRes.error || pRes.error || aRes.error || eRes.error || attRes.error || pendRes.error;
+    if(loadErr){ if(!_jcHandleCloudError(loadErr,'loadFromCloud')) showToast('Cloud load failed: ' + (loadErr?.message||'unknown'), 'error'); return false; }
 
     window.__jcLastCloudSync = new Date().toISOString();
     try{ localStorage.setItem('jobcard_last_cloud_sync', window.__jcLastCloudSync); }catch(_e){}
@@ -594,7 +596,7 @@ async function loadFromCloud(){
 
     if(Array.isArray(attRes.data)) _jcPersistAttendanceMapsFromRows(attRes.data);
 
-    if(!pendRes?.error && Array.isArray(pendRes?.data)){
+    if(Array.isArray(pendRes?.data)){
       pendingEntries = pendRes.data.map(r=>({
         id: r.id,
         workerName: r.worker_name,
@@ -767,14 +769,33 @@ async function submitPendingEntry(wn,proj,mainAct,subAct,hrs,date,detail){
   savePending();
   if(isCloudReady()){
     try{
-      const res = await sb().from('jc_pending_entries')
-        .insert({entry_date:entry.date,worker_name:_jcUpper(entry.workerName),project_name:_jcUpper(entry.projectName),
-          activity_name:_jcUpper(entry.activity),sub_activity:_jcUpper(entry.subActivity||''),
-          hours:Number(entry.hours||0),remark:entry.detailReason||'',status:'pending',submitted_at:entry.submittedAt})
-        .select('id').single();
-      if(res?.error) throw res.error;
-      if(res?.data?.id){ entry.id = res.data.id; savePending(); }
-    }catch(e){ _jcHandleCloudError(e,'submitPendingEntry'); }
+      const payload = {
+        entry_date: entry.date,
+        worker_name: _jcUpper(entry.workerName),
+project_name: _jcUpper(entry.projectName),
+activity_name: _jcUpper(entry.activity),
+        sub_activity: entry.subActivity || '',
+        hours: Number(entry.hours || 0),
+        remark: entry.detailReason || '',
+        status: 'pending',
+        submitted_at: entry.submittedAt
+      };
+      console.log('[JC] submitPendingEntry payload:', payload);
+      const res = await sb().from('jc_pending_entries').insert(payload).select('id').single();
+      if(res?.error){
+        console.error('[JC] submitPendingEntry error:', res.error);
+        showToast('Warning: Entry saved locally but cloud sync failed: ' + (res.error?.message||'unknown'), 'error');
+        _jcHandleCloudError(res.error,'submitPendingEntry');
+      } else if(res?.data?.id){
+        entry.id = res.data.id;
+        savePending();
+        console.log('[JC] submitPendingEntry success, cloud id:', res.data.id);
+      }
+    }catch(e){
+      console.error('[JC] submitPendingEntry exception:', e);
+      showToast('Entry saved locally. Cloud sync failed: ' + (e?.message||String(e)), 'error');
+      _jcHandleCloudError(e,'submitPendingEntry');
+    }
   }
   return true;
 }
@@ -786,9 +807,11 @@ async function approvePendingEntry(pendingId, editedData){
   await addEntry(merged.workerName,merged.projectName,merged.activity,merged.subActivity,merged.hours,merged.date,merged.detailReason);
   pendingEntries = pendingEntries.filter(e=>String(e.id)!==String(pendingId));
   savePending();
-  if(isCloudReady()){
+ // AFTER (always updates cloud if ready)
+if(isCloudReady() && pendingId){
     try{
-      await sb().from('jc_pending_entries').update({status:'approved',reviewed_at:new Date().toISOString(),reviewed_by:'Admin'}).eq('id',pendingId);
+      const res = await sb().from('jc_pending_entries').update({status:'approved',reviewed_at:new Date().toISOString(),reviewed_by:'Admin'}).eq('id',pendingId);
+      if(res?.error) console.error('[JC] approvePendingEntry update error:', res.error);
     }catch(e){ _jcHandleCloudError(e,'approvePendingEntry'); }
   }
 }
@@ -796,9 +819,10 @@ async function approvePendingEntry(pendingId, editedData){
 async function rejectPendingEntry(pendingId){
   pendingEntries = pendingEntries.filter(e=>String(e.id)!==String(pendingId));
   savePending();
-  if(isCloudReady()){
+  if(isCloudReady() && pendingId && !String(pendingId).startsWith('pnd_')){
     try{
-      await sb().from('jc_pending_entries').update({status:'rejected',reviewed_at:new Date().toISOString(),reviewed_by:'Admin'}).eq('id',pendingId);
+      const res = await sb().from('jc_pending_entries').update({status:'rejected',reviewed_at:new Date().toISOString(),reviewed_by:'Admin'}).eq('id',pendingId);
+      if(res?.error) console.error('[JC] rejectPendingEntry update error:', res.error);
     }catch(e){ _jcHandleCloudError(e,'rejectPendingEntry'); }
   }
 }
@@ -1383,6 +1407,7 @@ function buildApprovalQueue(){
         <select id="aqWorkerFilter" class="sel" style="width:auto;" onchange="window._aqFilterWorker=this.value;renderAdminSection('approvalqueue');">${workerFilterOptions}</select>
         <input type="date" id="aqDateFilter" class="inp" style="width:auto;" value="${filterDate}" onchange="window._aqFilterDate=this.value;renderAdminSection('approvalqueue');">
         <button class="btn btn-ghost btn-sm" onclick="window._aqFilterWorker='';window._aqFilterDate='';renderAdminSection('approvalqueue');"><i class="fas fa-times"></i>Clear</button>
+        <button class="btn btn-ghost btn-sm" id="aqRefreshBtn"><i class="fas fa-sync"></i>Refresh</button>
         ${pending.length>0?`<button class="btn btn-fire btn-sm" id="approveAllBtn"><i class="fas fa-check-double"></i>Approve All (${pending.length})</button>`:''}
       </div>
     </div>
@@ -1642,6 +1667,17 @@ function attachSectionEvents(section){
 
   // ── APPROVAL QUEUE ───────────────────────────────────────────
   if(section === 'approvalqueue'){
+
+    document.getElementById('aqRefreshBtn')?.addEventListener('click', async ()=>{
+      const btn = document.getElementById('aqRefreshBtn');
+      if(btn){ btn.disabled=true; btn.innerHTML='<i class="fas fa-spinner fa-spin"></i>Syncing…'; }
+      if(isCloudReady()){
+        // Re-enable cloud in case it was disabled by a transient error
+        window.__jcCloudDisabled = false;
+        await loadFromCloud();
+      }
+      renderAdminSection('approvalqueue');
+    });
 
     document.getElementById('approveAllBtn')?.addEventListener('click', async ()=>{
       if(!confirm('Approve all pending entries as-is?')) return;
