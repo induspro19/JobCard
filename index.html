@@ -420,6 +420,8 @@
     <div class="nav-label">Export</div>
     <div class="nav-item" data-section="projecthours" onclick="adminNav(this,'projecthours')"><i class="fas fa-chart-bar"></i>Project Hours</div>
     <div class="nav-item" onclick="doExportExcel()"><i class="fas fa-file-excel"></i>Export Excel</div>
+    <div class="nav-label">Settings</div>
+    <div class="nav-item" data-section="changeadminpass" onclick="adminNav(this,'changeadminpass')"><i class="fas fa-key"></i>Change Password</div>
   </nav>
   <div class="sidebar-footer">
     <div class="user-chip">
@@ -444,7 +446,7 @@
 
   <div id="appRoot" style="flex:1;"></div>
 
-  <div class="footer-note" id="footerNote">Admin: admin2025 &nbsp;·&nbsp; Daily limit: 7.5h &nbsp;·&nbsp; Sub‑activities auto‑load</div>
+  <div class="footer-note" id="footerNote">Indus Fire Safety &nbsp;·&nbsp; Daily limit: 7.5h &nbsp;·&nbsp; Sub‑activities auto‑load</div>
 </div>
 
 <script>
@@ -457,6 +459,14 @@ const STORAGE_SUNDAY     = "jobcard_sunday_approved_v3";
 const STORAGE_WORKERS    = "jobcard_workers_v3";
 const STORAGE_ACTIVITIES = "jobcard_activities_v3";
 const STORAGE_PENDING    = "jobcard_pending_v1";
+const STORAGE_ADMIN_PASS = "jobcard_admin_pass_v1";
+
+function getAdminPassword(){
+  return localStorage.getItem(STORAGE_ADMIN_PASS) || 'admin2025';
+}
+function setAdminPassword(newPass){
+  localStorage.setItem(STORAGE_ADMIN_PASS, newPass);
+}
 
 let jobEntries = [], projects = [], workers = [], activities = [], pendingEntries = [];
 let currentMode = "worker";
@@ -796,7 +806,7 @@ async function rejectPendingEntry(pendingId){
 async function adminAddEntry(wn,proj,mainAct,subAct,hrs,date,detail){ return await addEntry(wn,proj,mainAct,subAct,hrs,date,detail); }
 function getActiveProjects(){ return projects.filter(p=>p.active===true); }
 function getUnlockedActivities(projectName){ return activities.filter(a=>{ if(a.locked)return false; if(projectName&&a.lockedProjects&&a.lockedProjects.includes(projectName))return false; return true; }); }
-function getProjectHoursSummary(){ const map={}; jobEntries.forEach(e=>{ const p=e.projectName||"Unknown"; if(!map[p])map[p]={total:0,activities:{}}; map[p].total+=(e.hours||0); const act=e.activity||"Unknown"; if(!map[p].activities[act])map[p].activities[act]=0; map[p].activities[act]+=(e.hours||0); }); return map; }
+function getProjectHoursSummary(){ const map={}; jobEntries.forEach(e=>{ const p=e.projectName||"Unknown"; if(!map[p])map[p]={total:0,activities:{}}; map[p].total+=(e.hours||0); const act=e.activity||"Unknown"; if(!map[p].activities[act])map[p].activities[act]={total:0,subs:{}}; map[p].activities[act].total+=(e.hours||0); const sub=e.subActivity||'(No Sub)'; if(!map[p].activities[act].subs[sub])map[p].activities[act].subs[sub]=0; map[p].activities[act].subs[sub]+=(e.hours||0); }); return map; }
 function escapeHtml(s){ if(!s)return''; return s.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
 
 // ── TOPBAR ──
@@ -880,7 +890,7 @@ function renderAdminLogin(){
       </div>
     </div>`;
   document.getElementById('adminLoginBtn')?.addEventListener('click',()=>{
-    if(document.getElementById('adminPassInput').value==='admin2025'){
+    if(document.getElementById('adminPassInput').value===getAdminPassword()){
       adminLoggedIn=true; currentMode='admin'; renderAdminDashboard();
     } else showToast('Wrong password','error');
   });
@@ -915,7 +925,7 @@ function renderAdminSection(section){
   setTopbar(
     {overview:'Dashboard',workers:'Worker Management',projects:'Project Management',activities:'Activities',
      attendance:'Attendance & OT',entries:'All Entries',projecthours:'Project Hours & Export',
-     addentry:'Add Entry (Admin)',approvalqueue:'Approval Queue'}[section]||'Dashboard',
+     addentry:'Add Entry (Admin)',approvalqueue:'Approval Queue',changeadminpass:'Change Admin Password'}[section]||'Dashboard',
     'Indus Fire Safety — Admin Panel','admin'
   );
   const pendCount = pendingEntries.filter(e=>e.status==='pending').length;
@@ -936,6 +946,7 @@ function renderAdminSection(section){
   else if(section==='projecthours') wrap.innerHTML = buildProjectHours();
   else if(section==='addentry')  wrap.innerHTML = buildAdminAddEntry();
   else if(section==='approvalqueue') wrap.innerHTML = buildApprovalQueue();
+  else if(section==='changeadminpass') wrap.innerHTML = buildChangeAdminPass();
 
   root.appendChild(wrap);
   attachSectionEvents(section);
@@ -1170,18 +1181,22 @@ function buildAttendance(selDate){
 
 function buildEntries(){
   const sorted = [...jobEntries].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-  const rows = sorted.map(e=>`
-    <tr>
+  const rows = sorted.map(e=>{
+    const hasSub = e.subActivity && e.subActivity.trim();
+    return `
+    <tr style="cursor:pointer;" onclick="showEntrySubDetail('${String(e.id).replace(/'/g,'')}','${escapeHtml(e.projectName).replace(/'/g,'\\\'').replace(/"/g,'&quot;')}','${escapeHtml(e.activity).replace(/'/g,'\\\'').replace(/"/g,'&quot;')}')" title="Click to see sub-activity totals for this project + activity">
       <td>${escapeHtml(e.date)}</td><td>${escapeHtml(e.workerName)}</td>
-      <td>${escapeHtml(e.projectName)}</td><td>${escapeHtml(e.activity)}</td>
-      <td style="color:var(--text-3);font-size:0.72rem;">${escapeHtml(e.subActivity||'—')}</td>
+      <td style="color:var(--blue);">${escapeHtml(e.projectName)}</td>
+      <td style="color:var(--fire);">${escapeHtml(e.activity)}</td>
+      <td style="color:${hasSub?'var(--text-2)':'var(--text-3)'};font-size:0.72rem;">${escapeHtml(e.subActivity||'—')}</td>
       <td><span class="chip chip-gold">${e.hours.toFixed(2)}h</span></td>
-      <td><button onclick="window.adminDeleteEntry('${String(e.id).replace(/'/g,'')}')" class="btn btn-danger btn-xs"><i class="fas fa-trash"></i></button></td>
-    </tr>`).join('') || '<tr><td colspan="7"><div class="empty-state"><i class="fas fa-inbox"></i>No entries found</div></td></tr>';
+      <td onclick="event.stopPropagation();"><button onclick="window.adminDeleteEntry('${String(e.id).replace(/'/g,'')}');event.stopPropagation();" class="btn btn-danger btn-xs"><i class="fas fa-trash"></i></button></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7"><div class="empty-state"><i class="fas fa-inbox"></i>No entries found</div></td></tr>';
   return `
     <div class="panel fade-up">
       <div class="panel-header">
-        <div class="panel-title"><i class="fas fa-table"></i>All Entries (${jobEntries.length})</div>
+        <div class="panel-title"><i class="fas fa-table"></i>All Entries (${jobEntries.length}) <span style="font-size:0.65rem;color:var(--text-3);font-weight:400;margin-left:4px;">· Click any row to see sub-activity totals</span></div>
         <button class="btn btn-green btn-sm" onclick="doExportExcel()"><i class="fas fa-file-excel"></i>Export Excel</button>
       </div>
       <div class="tbl-scroll">
@@ -1190,8 +1205,56 @@ function buildEntries(){
           <tbody>${rows}</tbody>
         </table>
       </div>
+    </div>
+    <!-- Sub-detail Modal -->
+    <div id="subDetailModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9000;display:none;align-items:center;justify-content:center;">
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:20px;padding:28px;min-width:380px;max-width:520px;width:90%;max-height:80vh;overflow-y:auto;">
+        <div id="subDetailContent"></div>
+        <button onclick="document.getElementById('subDetailModal').style.display='none'" class="btn btn-ghost" style="width:100%;margin-top:18px;justify-content:center;"><i class="fas fa-times"></i>Close</button>
+      </div>
     </div>`;
 }
+
+window.showEntrySubDetail = function(entryId, projName, actName){
+  // Find all entries for this project + activity
+  const related = jobEntries.filter(e=>e.projectName===projName && e.activity===actName);
+  const subMap = {};
+  let total = 0;
+  related.forEach(e=>{
+    const sub = e.subActivity && e.subActivity.trim() ? e.subActivity : '(No Sub-Activity)';
+    if(!subMap[sub]) subMap[sub]=0;
+    subMap[sub]+=(e.hours||0);
+    total+=(e.hours||0);
+  });
+  const subRows = Object.entries(subMap).sort((a,b)=>b[1]-a[1]).map(([sub,hrs])=>{
+    const pct = total>0?((hrs/total)*100).toFixed(0):0;
+    return `<tr>
+      <td style="padding:9px 0;color:var(--text-1);font-size:0.78rem;">${escapeHtml(sub)}</td>
+      <td style="padding:9px 0;text-align:right;"><span class="chip chip-gold" style="font-size:0.68rem;">${hrs.toFixed(2)}h</span></td>
+      <td style="padding:9px 0 9px 12px;width:100px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div class="progress-wrap" style="flex:1;"><div class="progress-bar" style="width:${pct}%;background:var(--blue);"></div></div>
+          <span style="font-size:0.62rem;color:var(--text-3);">${pct}%</span>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+  document.getElementById('subDetailContent').innerHTML = `
+    <div style="margin-bottom:16px;">
+      <div style="font-family:'Space Grotesk',sans-serif;font-size:1rem;font-weight:700;margin-bottom:4px;">${escapeHtml(projName)}</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span class="chip chip-fire" style="font-size:0.72rem;"><i class="fas fa-tasks"></i>${escapeHtml(actName)}</span>
+        <span class="chip chip-gold" style="font-size:0.72rem;"><i class="fas fa-clock"></i>${total.toFixed(2)}h total · ${related.length} entries</span>
+      </div>
+    </div>
+    <div style="font-size:0.65rem;font-weight:700;color:var(--text-3);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:10px;">Sub-Activity Breakdown</div>
+    <table style="width:100%;border-collapse:collapse;">
+      <tbody>${subRows}</tbody>
+    </table>`;
+  const modal = document.getElementById('subDetailModal');
+  modal.style.display='flex';
+  modal.onclick = function(ev){ if(ev.target===modal) modal.style.display='none'; };
+};
 
 function buildAdminAddEntry(){
   const workerOptions  = workers.map(w=>`<option value="${escapeHtml(w.name)}">${escapeHtml(w.name)}</option>`).join('');
@@ -1276,8 +1339,10 @@ function buildApprovalQueue(){
     return `
       <div class="entry-row fade-up" id="aqrow_${sid}" style="border-left:3px solid var(--gold);">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <div style="display:flex;align-items:center;gap:8px;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <span class="chip chip-gold"><i class="fas fa-clock"></i>Pending</span>
+            ${e.activity ? `<span class="chip chip-fire" style="font-size:0.65rem;"><i class="fas fa-tasks"></i>${escapeHtml(e.activity)}</span>` : ''}
+            ${e.subActivity ? `<span class="chip chip-blue" style="font-size:0.65rem;"><i class="fas fa-layer-group"></i>${escapeHtml(e.subActivity)}</span>` : ''}
             <span style="font-size:0.68rem;color:var(--text-3);">${e.submittedAt ? new Date(e.submittedAt).toLocaleString() : '—'}</span>
           </div>
           <div style="display:flex;gap:6px;">
@@ -1606,6 +1671,11 @@ function attachSectionEvents(section){
       });
     });
   }
+
+  // ── CHANGE ADMIN PASSWORD ─────────────────────────────────────
+  if(section === 'changeadminpass'){
+    attachChangeAdminPassEvents();
+  }
 }
 
 // ── PROJECT HOURS ──
@@ -1624,10 +1694,26 @@ function buildProjectHours(){
     const proj = projects.find(p=>p.name===pName);
     const isActive = proj ? proj.active : true;
     const pct = totalAll>0 ? ((pd.total/totalAll)*100).toFixed(1) : 0;
-    const actRows = Object.entries(pd.activities).sort((a,b)=>b[1]-a[1]).map(([act,hrs])=>{
+    const actRows = Object.entries(pd.activities).sort((a,b)=>b[1].total-a[1].total).map(([act,actData])=>{
+      const hrs = actData.total;
       const apct = pd.total>0 ? ((hrs/pd.total)*100).toFixed(0) : 0;
-      return `<tr>
-        <td style="padding:9px 14px;">${escapeHtml(act)}</td>
+      const subEntries = Object.entries(actData.subs).filter(([s])=>s!=='(No Sub)').sort((a,b)=>b[1]-a[1]);
+      const safeId = (pName+'_'+act).replace(/[^a-zA-Z0-9]/g,'_');
+      const subRows = subEntries.map(([sub,shrs])=>{
+        const spct = hrs>0 ? ((shrs/hrs)*100).toFixed(0) : 0;
+        return `<tr style="background:rgba(255,255,255,0.02);">
+          <td style="padding:6px 14px 6px 34px;color:var(--text-3);font-size:0.72rem;"><i class="fas fa-corner-down-right" style="margin-right:5px;font-size:0.6rem;opacity:0.5;"></i>${escapeHtml(sub)}</td>
+          <td style="padding:6px 14px;"><span class="chip chip-blue" style="font-size:0.62rem;">${shrs.toFixed(2)}h</span></td>
+          <td style="padding:6px 14px;width:120px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div class="progress-wrap" style="flex:1;"><div class="progress-bar" style="width:${spct}%;background:var(--blue);"></div></div>
+              <span style="font-size:0.62rem;color:var(--text-3);min-width:28px;">${spct}%</span>
+            </div>
+          </td>
+        </tr>`;
+      }).join('');
+      return `<tr class="ph-act-row" style="cursor:${subEntries.length?'pointer':'default'};" onclick="${subEntries.length?`document.getElementById('phsub_${safeId}').style.display=document.getElementById('phsub_${safeId}').style.display==='none'?'':'none'`:''}">
+        <td style="padding:9px 14px;display:flex;align-items:center;gap:6px;">${subEntries.length?`<i class="fas fa-chevron-right" style="font-size:0.55rem;color:var(--text-3);transition:transform 0.2s;" id="phico_${safeId}"></i>`:'<span style="width:12px;display:inline-block;"></span>'}<span>${escapeHtml(act)}</span>${subEntries.length?`<span class="chip chip-blue" style="font-size:0.58rem;padding:2px 7px;">${subEntries.length} sub</span>`:''}</td>
         <td style="padding:9px 14px;"><span class="chip chip-gold">${hrs.toFixed(2)}h</span></td>
         <td style="padding:9px 14px;width:120px;">
           <div style="display:flex;align-items:center;gap:8px;">
@@ -1635,7 +1721,7 @@ function buildProjectHours(){
             <span style="font-size:0.68rem;color:var(--text-3);min-width:28px;">${apct}%</span>
           </div>
         </td>
-      </tr>`;
+      </tr>${subEntries.length?`<tr id="phsub_${safeId}" style="display:none;"><td colspan="3" style="padding:0;">${subRows.length?`<table style="width:100%;border-collapse:collapse;">${subRows}</table>`:''}</td></tr>`:''}`;
     }).join('');
     return `
       <div class="panel section-gap fade-up">
@@ -1683,13 +1769,14 @@ function buildProjectHours(){
         const isActive = proj ? proj.active : true;
         const pct = totalAll>0 ? ((pd.total/totalAll)*100).toFixed(1) : 0;
         const actCount = Object.keys(pd.activities).length;
+        const subCount = Object.values(pd.activities).reduce((s,a)=>s+Object.keys(a.subs).filter(k=>k!=='(No Sub)').length,0);
         return `<div class="stat-card">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
             <div style="width:8px;height:8px;border-radius:50%;background:${isActive?'var(--green)':'var(--text-3)'};"></div>
             <div style="font-size:0.7rem;font-weight:600;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(pName)}">${escapeHtml(pName)}</div>
           </div>
           <div class="stat-value" style="font-size:1.5rem;">${pd.total.toFixed(1)}<span style="font-size:0.75rem;color:var(--text-3);">h</span></div>
-          <div class="stat-label">${actCount} activit${actCount===1?'y':'ies'}</div>
+          <div class="stat-label">${actCount} activit${actCount===1?'y':'ies'}${subCount?` · ${subCount} sub-acts`:''}</div>
           <div class="progress-wrap" style="margin-top:10px;"><div class="progress-bar" style="width:${pct}%;background:${isActive?'linear-gradient(90deg,var(--green),var(--blue))':'var(--text-3)'};"></div></div>
         </div>`;
       }).join('')}
@@ -1730,12 +1817,20 @@ function doExportExcelForProject(projName){
   const actMap  = {};
   entries.forEach(e=>{
     const act = e.activity||'Unknown';
-    if(!actMap[act]) actMap[act] = {activity:act,totalHours:0,entries:[]};
+    if(!actMap[act]) actMap[act] = {activity:act,totalHours:0,subs:{},entries:[]};
     actMap[act].totalHours += e.hours||0;
+    const sub = e.subActivity||'';
+    if(sub){ if(!actMap[act].subs[sub])actMap[act].subs[sub]=0; actMap[act].subs[sub]+=(e.hours||0); }
     actMap[act].entries.push(e);
   });
+  // Activity summary
   const summaryRows = Object.values(actMap).map(a=>({'Activity':a.activity,'Total Hours':a.totalHours.toFixed(2)}));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Summary');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Activity Summary');
+  // Sub-activity summary
+  const subSummaryRows = [];
+  Object.values(actMap).forEach(a=>{ Object.entries(a.subs).forEach(([sub,hrs])=>{ subSummaryRows.push({'Activity':a.activity,'Sub-Activity':sub,'Hours':hrs.toFixed(2)}); }); });
+  if(subSummaryRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(subSummaryRows), 'Sub-Activity Summary');
+  // Detail
   const detailRows = entries.map(e=>({'Date':e.date,'Worker':e.workerName,'Activity':e.activity,'Sub-Activity':e.subActivity||'','Hours':e.hours.toFixed(2),'Remark':e.detailReason||''}));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detailRows), 'Detail');
   XLSX.writeFile(wb, `${projName.replace(/[^a-zA-Z0-9]/g,'_')}_Hours_${getToday()}.xlsx`);
@@ -1745,29 +1840,105 @@ function doExportExcelForProject(projName){
 function doExportExcel(){
   const wb = XLSX.utils.book_new();
   const summaryRows = [];
+  const subSummaryRows = [];
   const projMap = new Map();
   jobEntries.forEach(e=>{
     const p = e.projectName||'Unknown';
     if(!projMap.has(p)) projMap.set(p,new Map());
     const actMap = projMap.get(p);
-    actMap.set(e.activity,(actMap.get(e.activity)||0)+(e.hours||0));
+    if(!actMap.has(e.activity)) actMap.set(e.activity,{total:0,subs:new Map()});
+    const actData = actMap.get(e.activity);
+    actData.total += (e.hours||0);
+    const sub = e.subActivity||'';
+    if(sub) actData.subs.set(sub,(actData.subs.get(sub)||0)+(e.hours||0));
   });
   for(let[proj,actMap] of projMap.entries())
-    for(let[act,hrs] of actMap.entries())
-      summaryRows.push({Project:proj,Activity:act,"Total Hours":hrs.toFixed(2)});
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows),'All Projects');
+    for(let[act,actData] of actMap.entries()){
+      summaryRows.push({Project:proj,Activity:act,"Total Hours":actData.total.toFixed(2)});
+      for(let[sub,hrs] of actData.subs.entries())
+        subSummaryRows.push({Project:proj,Activity:act,"Sub-Activity":sub,"Hours":hrs.toFixed(2)});
+    }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows),'Activity Summary');
+  if(subSummaryRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(subSummaryRows),'Sub-Activity Summary');
   for(let[proj,actMap] of projMap.entries()){
     const projRows = [];
-    for(let[act,hrs] of actMap.entries()) projRows.push({Activity:act,"Total Hours":hrs.toFixed(2)});
+    for(let[act,actData] of actMap.entries()) projRows.push({Activity:act,"Total Hours":actData.total.toFixed(2)});
+    const subRows = [];
+    for(let[act,actData] of actMap.entries()) for(let[sub,hrs] of actData.subs.entries()) subRows.push({Activity:act,"Sub-Activity":sub,"Hours":hrs.toFixed(2)});
     const details = jobEntries.filter(e=>e.projectName===proj).map(e=>({Date:e.date,Worker:e.workerName,Activity:e.activity,"Sub-Activity":e.subActivity||'','Hours':e.hours.toFixed(2),Remark:e.detailReason||''}));
     const sheetName = proj.replace(/[\/:*?\[\]]/g,'').slice(0,28);
     const ws = XLSX.utils.json_to_sheet(projRows);
-    XLSX.utils.sheet_add_aoa(ws,[[]], {origin:-1});
+    if(subRows.length){ XLSX.utils.sheet_add_aoa(ws,[[],['',"--- Sub-Activity Breakdown ---"]], {origin:-1}); XLSX.utils.sheet_add_json(ws,subRows,{origin:-1,skipHeader:false}); }
+    XLSX.utils.sheet_add_aoa(ws,[[],['',"--- Detailed Entries ---"]], {origin:-1});
     XLSX.utils.sheet_add_json(ws,details,{origin:-1,skipHeader:false});
     XLSX.utils.book_append_sheet(wb,ws,sheetName);
   }
   XLSX.writeFile(wb,`IndusFireSafety_Hours_${getToday()}.xlsx`);
   showToast('All projects exported!');
+}
+
+function buildChangeAdminPass(){
+  return `
+    <div class="panel fade-up" style="max-width:480px;">
+      <div class="panel-header">
+        <div class="panel-title"><i class="fas fa-key"></i>Change Admin Password</div>
+        <span class="chip chip-gold"><i class="fas fa-user-shield"></i>Admin Only</span>
+      </div>
+      <div class="panel-body">
+        <div style="background:var(--blue-soft);border:1px solid rgba(59,130,246,0.2);border-radius:10px;padding:11px 15px;margin-bottom:22px;font-size:0.75rem;color:var(--blue);display:flex;align-items:center;gap:8px;">
+          <i class="fas fa-info-circle"></i>
+          Password is stored securely on this device. Choose something only you know.
+        </div>
+        <div style="margin-bottom:14px;">
+          <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">CURRENT PASSWORD</div>
+          <input type="password" id="adminCurrPass" class="inp" placeholder="Enter current password" autocomplete="current-password">
+        </div>
+        <div style="margin-bottom:14px;">
+          <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">NEW PASSWORD</div>
+          <input type="password" id="adminNewPass" class="inp" placeholder="Enter new password" autocomplete="new-password">
+        </div>
+        <div style="margin-bottom:22px;">
+          <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">CONFIRM NEW PASSWORD</div>
+          <input type="password" id="adminConfirmPass" class="inp" placeholder="Re-enter new password" autocomplete="new-password">
+        </div>
+        <button id="adminChangePassBtn" class="btn btn-fire" style="min-width:180px;">
+          <i class="fas fa-save"></i>Update Password
+        </button>
+      </div>
+    </div>`;
+}
+
+// ── ATTACH CHANGE ADMIN PASS EVENT ──
+function attachChangeAdminPassEvents(){
+  document.getElementById('adminChangePassBtn')?.addEventListener('click', ()=>{
+    const curr    = document.getElementById('adminCurrPass')?.value || '';
+    const newPass = document.getElementById('adminNewPass')?.value?.trim() || '';
+    const confirm = document.getElementById('adminConfirmPass')?.value?.trim() || '';
+
+    if(curr !== getAdminPassword()){
+      showToast('Current password is incorrect', 'error'); return;
+    }
+    if(!newPass){
+      showToast('New password cannot be empty', 'error'); return;
+    }
+    if(newPass.length < 4){
+      showToast('Password must be at least 4 characters', 'error'); return;
+    }
+    if(newPass !== confirm){
+      showToast('New passwords do not match', 'error'); return;
+    }
+    if(newPass === curr){
+      showToast('New password must differ from current', 'error'); return;
+    }
+
+    setAdminPassword(newPass);
+    showToast('Admin password updated successfully!');
+
+    // Clear fields
+    document.getElementById('adminCurrPass').value    = '';
+    document.getElementById('adminNewPass').value     = '';
+    document.getElementById('adminConfirmPass').value = '';
+  });
 }
 
 function doAdminLogout(){ adminLoggedIn=false; currentMode='worker'; renderWorkerLogin(); }
