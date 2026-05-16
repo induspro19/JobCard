@@ -1978,7 +1978,14 @@ function attachChangeAdminPassEvents(){
 }
 
 function doAdminLogout(){ adminLoggedIn=false; currentMode='worker'; renderWorkerLogin(); }
-function doWorkerLogout(){ loggedInWorker=null; _workerTab='log'; currentMode='worker'; renderWorkerLogin(); }
+function doWorkerLogout(){
+  loggedInWorker  = null;
+  _workerTab      = 'log';
+  _workerDraftRows = null;  // ✅ clear so next worker gets a fresh form
+  _workerDraftKey  = '';
+  currentMode     = 'worker';
+  renderWorkerLogin();
+}
 
 window.adminDeleteEntry = function(id){
   (async ()=>{
@@ -2001,7 +2008,22 @@ function renderWorkerDashboard(){
 
   setTopbar(worker.name, `Today: ${today}`, 'worker');
 
-  let rows = [{project:'',mainAct:'',subActs:[],hours:Math.min(7.5,remaining),detail:''}];
+// ── Restore or initialise draft rows ──
+// Key = "WorkerName|YYYY-MM-DD" so draft resets automatically on a new day
+const _draftKey = worker.name + '|' + today;
+
+if (_workerDraftKey !== _draftKey) {
+  // Different worker logged in, OR it's a new calendar day → start fresh
+  _workerDraftRows = null;
+  _workerDraftKey  = _draftKey;
+}
+
+if (!_workerDraftRows || _workerDraftRows.length === 0) {
+  // No saved draft exists yet → create the default first row
+  _workerDraftRows = [{ project: '', mainAct: '', subActs: [], hours: Math.min(7.5, remaining), detail: '' }];
+}
+
+let rows = _workerDraftRows;  // ← reference, not a copy — mutations update the draft
 
   function getRowActivities(proj){ return getUnlockedActivities(proj||null); }
   function getSubList(mainAct,proj){
@@ -2369,6 +2391,8 @@ function renderWorkerDashboard(){
         count++;
       }
       showToast(`${count} entries submitted!`);
+      // ✅ Clear draft so the form starts blank after a successful submit
+      _workerDraftRows = null;
       _workerTab = 'log';
       renderWorkerDashboard();
     });
@@ -2421,18 +2445,60 @@ let _rtChannel = null;
 let _rtDebounceTimer = null;
 
 function _rtRefreshUI(label){
-  // Debounce multiple rapid changes into one re-render
   clearTimeout(_rtDebounceTimer);
-  _rtDebounceTimer = setTimeout(async ()=>{
-    await loadFromCloud();
-    if(currentMode==='worker' && loggedInWorker){
-      renderWorkerDashboard();
-    } else if(currentMode==='admin' && adminLoggedIn){
+  _rtDebounceTimer = setTimeout(async () => {
+    await loadFromCloud();  // always reload data from Supabase
+
+    if (currentMode === 'admin' && adminLoggedIn) {
+      // Admin: full re-render is fine — no form to lose
       renderAdminSection(activeAdminSection);
+
+    } else if (currentMode === 'worker' && loggedInWorker) {
+      if (_workerTab === 'log') {
+        // ✅ Worker is on the entry form tab:
+        // Only refresh the stats + side panels, NOT the form itself.
+        _rtWorkerSoftRefresh();
+      } else {
+        // Worker is on history/pending/change-pin tabs: full re-render is safe
+        renderWorkerDashboard();
+      }
     }
-    // Show a subtle live-update indicator (no toast spam)
+
     _showLivePulse(label);
   }, 350);
+}
+
+// ── Soft refresh: update stats panels without touching the entry form ──
+function _rtWorkerSoftRefresh(){
+  const worker    = loggedInWorker;
+  const today     = getToday();
+  const booked    = getWorkerDailyHours(worker.name, today);
+  const remaining = getRemainingHours(worker.name, today);
+
+  // Update hours progress bar if it exists on screen
+  const bar = document.getElementById('hoursProgressBar');
+  if (bar) bar.style.width = Math.min(100, (booked / 7.5) * 100) + '%';
+
+  // Update pending entries panel
+  const myPending = pendingEntries.filter(e => e.workerName === worker.name && e.status === 'pending');
+  const pendDiv   = document.getElementById('workerPendingEntries');
+  if (pendDiv) {
+    if (!myPending.length) {
+      pendDiv.innerHTML = '<div class="empty-state"><i class="fas fa-check-circle" style="color:var(--green);"></i>No pending submissions</div>';
+    } else {
+      pendDiv.innerHTML = `<table class="pro-table"><thead><tr>
+        <th>Date</th><th>Project</th><th>Activity</th><th>Hrs</th><th>Status</th>
+      </tr></thead><tbody>
+        ${myPending.map(e => `<tr>
+          <td>${e.date}</td><td>${escapeHtml(e.projectName)}</td>
+          <td>${escapeHtml(e.activity)}</td>
+          <td>${e.hours.toFixed(1)}h</td>
+          <td><span class="chip chip-gold" style="font-size:0.62rem;">
+            <i class="fas fa-clock"></i>Pending</span></td>
+        </tr>`).join('')}
+      </tbody></table>`;
+    }
+  }
 }
 
 function _showLivePulse(label){
