@@ -474,6 +474,29 @@ let loggedInWorker = null;
 let adminLoggedIn = false;
 let activeAdminSection = "overview";
 
+// ── WORKER DRAFT — persists across realtime re-renders AND full browser refresh ──
+const DRAFT_STORAGE_KEY = 'jc_worker_draft';
+let _workerDraftRows = null;
+let _workerDraftKey  = '';
+
+function _saveDraftToStorage(){
+  try{ localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({ key: _workerDraftKey, rows: _workerDraftRows })); }catch(_){}
+}
+function _loadDraftFromStorage(){
+  try{
+    const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+    if(!raw) return;
+    const p = JSON.parse(raw);
+    if(p && p.key && Array.isArray(p.rows) && p.rows.length > 0){
+      _workerDraftKey  = p.key;
+      _workerDraftRows = p.rows;
+    }
+  }catch(_){}
+}
+function _clearDraftStorage(){
+  try{ localStorage.removeItem(DRAFT_STORAGE_KEY); }catch(_){}
+}
+
 function getToday() { return new Date().toISOString().split('T')[0]; }
 
 var JC_SUPABASE_URL = 'https://duikfskqbacackelieux.supabase.co';
@@ -1981,8 +2004,9 @@ function doAdminLogout(){ adminLoggedIn=false; currentMode='worker'; renderWorke
 function doWorkerLogout(){
   loggedInWorker  = null;
   _workerTab      = 'log';
-  _workerDraftRows = null;  // ✅ clear so next worker gets a fresh form
+  _workerDraftRows = null;  // clear memory draft
   _workerDraftKey  = '';
+  _clearDraftStorage();     // clear localStorage draft
   currentMode     = 'worker';
   renderWorkerLogin();
 }
@@ -2009,18 +2033,23 @@ function renderWorkerDashboard(){
   setTopbar(worker.name, `Today: ${today}`, 'worker');
 
 // ── Restore or initialise draft rows ──
-// Key = "WorkerName|YYYY-MM-DD" so draft resets automatically on a new day
+// Key = "WorkerName|YYYY-MM-DD" so draft resets automatically on new day or new worker
 const _draftKey = worker.name + '|' + today;
 
+// If memory is empty (e.g. page was refreshed), try loading from localStorage
+if(!_workerDraftRows) _loadDraftFromStorage();
+
 if (_workerDraftKey !== _draftKey) {
-  // Different worker logged in, OR it's a new calendar day → start fresh
+  // Different worker or new calendar day → discard old draft, start fresh
   _workerDraftRows = null;
   _workerDraftKey  = _draftKey;
+  _clearDraftStorage();
 }
 
 if (!_workerDraftRows || _workerDraftRows.length === 0) {
-  // No saved draft exists yet → create the default first row
+  // No saved draft exists → create a default first row
   _workerDraftRows = [{ project: '', mainAct: '', subActs: [], hours: Math.min(7.5, remaining), detail: '' }];
+  _saveDraftToStorage();
 }
 
 let rows = _workerDraftRows;  // ← reference, not a copy — mutations update the draft
@@ -2111,7 +2140,7 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
     rows.forEach((row,idx)=>{
       const ph = document.getElementById(`hourStepper-${idx}`);
       if(ph){
-        const st = createHourStepper(row.hours||0.5, val=>{ rows[idx].hours=val; updateTotals(); });
+        const st = createHourStepper(row.hours||0.5, val=>{ rows[idx].hours=val; updateTotals(); _saveDraftToStorage(); });
         ph.innerHTML = ''; ph.appendChild(st);
       }
     });
@@ -2122,32 +2151,32 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
       const row = rows[idx];
       if(row.subActs.includes(s)) row.subActs = row.subActs.filter(x=>x!==s);
       else row.subActs = [...row.subActs, s];
-      refreshRowsUI(); updateTotals();
+      refreshRowsUI(); updateTotals(); _saveDraftToStorage();
     }));
 
     document.querySelectorAll('.removeRowBtn').forEach(btn=>btn.addEventListener('click',()=>{
       const idx = parseInt(btn.dataset.idx);
-      if(rows.length>1){ rows.splice(idx,1); refreshRowsUI(); updateTotals(); }
+      if(rows.length>1){ rows.splice(idx,1); refreshRowsUI(); updateTotals(); _saveDraftToStorage(); }
       else showToast('At least one entry needed','error');
     }));
 
     document.querySelectorAll('.row-project').forEach(el=>el.addEventListener('change',e=>{
       const idx = parseInt(e.target.dataset.idx);
       rows[idx].project = e.target.value; rows[idx].mainAct=''; rows[idx].subActs=[];
-      refreshRowsUI(); updateTotals();
+      refreshRowsUI(); updateTotals(); _saveDraftToStorage();
     }));
     document.querySelectorAll('.row-mainAct').forEach(el=>el.addEventListener('change',e=>{
       const idx = parseInt(e.target.dataset.idx);
       rows[idx].mainAct = e.target.value; rows[idx].subActs=[];
-      refreshRowsUI(); updateTotals();
+      refreshRowsUI(); updateTotals(); _saveDraftToStorage();
     }));
     document.querySelectorAll('.row-detail').forEach(el=>el.addEventListener('input',e=>{
       const idx = parseInt(e.target.dataset.idx);
-      rows[idx].detail = e.target.value;
+      rows[idx].detail = e.target.value; _saveDraftToStorage();
     }));
     document.getElementById('addRowBtn')?.addEventListener('click',()=>{
       rows.push({project:'',mainAct:'',subActs:[],hours:0.5,detail:''});
-      refreshRowsUI(); updateTotals();
+      refreshRowsUI(); updateTotals(); _saveDraftToStorage();
     });
   }
 
@@ -2391,8 +2420,9 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
         count++;
       }
       showToast(`${count} entries submitted!`);
-      // ✅ Clear draft so the form starts blank after a successful submit
+      // ✅ Clear draft (memory + localStorage) after successful submit
       _workerDraftRows = null;
+      _clearDraftStorage();
       _workerTab = 'log';
       renderWorkerDashboard();
     });
