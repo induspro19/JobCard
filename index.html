@@ -497,6 +497,12 @@ function _clearDraftStorage(){
   try{ localStorage.removeItem(DRAFT_STORAGE_KEY); }catch(_){}
 }
 
+// ── Returns true if the worker has started filling in any row (dirty state) ──
+function _workerHasDirtyRows(){
+  if(!_workerDraftRows || !_workerDraftRows.length) return false;
+  return _workerDraftRows.some(r => r.project || r.mainAct || (r.subActs && r.subActs.length > 0) || r.detail);
+}
+
 function getToday() { return new Date().toISOString().split('T')[0]; }
 
 var JC_SUPABASE_URL = 'https://duikfskqbacackelieux.supabase.co';
@@ -1898,42 +1904,150 @@ function doExportExcelForProject(projName){
 
 function doExportExcel(){
   const wb = XLSX.utils.book_new();
-  const summaryRows = [];
-  const subSummaryRows = [];
+
+  // ── 1. Build maps ──────────────────────────────────────────────────────────
+  // projMap: Project → Activity → { total, subs: Map }
   const projMap = new Map();
-  jobEntries.forEach(e=>{
-    const p = e.projectName||'Unknown';
-    if(!projMap.has(p)) projMap.set(p,new Map());
+  // contributionMap: "ProjectName||WorkerName" → totalHours
+  const contributionMap = new Map();
+
+  jobEntries.forEach(e => {
+    const p   = e.projectName  || 'Unknown';
+    const act = e.activity     || 'Unknown';
+    const sub = e.subActivity  || '';
+    const hrs = e.hours        || 0;
+    const wkr = e.workerName   || 'Unknown';
+
+    // Project > Activity > Sub map
+    if (!projMap.has(p)) projMap.set(p, new Map());
     const actMap = projMap.get(p);
-    if(!actMap.has(e.activity)) actMap.set(e.activity,{total:0,subs:new Map()});
-    const actData = actMap.get(e.activity);
-    actData.total += (e.hours||0);
-    const sub = e.subActivity||'';
-    if(sub) actData.subs.set(sub,(actData.subs.get(sub)||0)+(e.hours||0));
+    if (!actMap.has(act)) actMap.set(act, { total: 0, subs: new Map() });
+    const actData = actMap.get(act);
+    actData.total += hrs;
+    if (sub) actData.subs.set(sub, (actData.subs.get(sub) || 0) + hrs);
+
+    // Worker contribution map
+    const ck = p + '||' + wkr;
+    contributionMap.set(ck, (contributionMap.get(ck) || 0) + hrs);
   });
-  for(let[proj,actMap] of projMap.entries())
-    for(let[act,actData] of actMap.entries()){
-      summaryRows.push({Project:proj,Activity:act,"Total Hours":actData.total.toFixed(2)});
-      for(let[sub,hrs] of actData.subs.entries())
-        subSummaryRows.push({Project:proj,Activity:act,"Sub-Activity":sub,"Hours":hrs.toFixed(2)});
+
+  // ── 2. Sheet 1: Activity Summary (Project > Activity > Sub-Activity hierarchy) ──
+  const hierarchyRows = [];
+  for (const [proj, actMap] of projMap.entries()) {
+    let projTotal = 0;
+    for (const [, actData] of actMap.entries()) projTotal += actData.total;
+
+    // Project header row
+    hierarchyRows.push({
+      Level:          'PROJECT',
+      Project:        proj,
+      Activity:       '',
+      'Sub-Activity': '',
+      'Hours':        projTotal.toFixed(2)
+    });
+
+    for (const [act, actData] of actMap.entries()) {
+      // Activity row
+      hierarchyRows.push({
+        Level:          '  ACTIVITY',
+        Project:        proj,
+        Activity:       act,
+        'Sub-Activity': '',
+        'Hours':        actData.total.toFixed(2)
+      });
+
+      // Sub-Activity rows
+      if (actData.subs.size > 0) {
+        for (const [sub, hrs] of actData.subs.entries()) {
+          hierarchyRows.push({
+            Level:          '    SUB-ACTIVITY',
+            Project:        proj,
+            Activity:       act,
+            'Sub-Activity': sub,
+            'Hours':        hrs.toFixed(2)
+          });
+        }
+      } else {
+        hierarchyRows.push({
+          Level:          '    SUB-ACTIVITY',
+          Project:        proj,
+          Activity:       act,
+          'Sub-Activity': '(No Sub-Activity)',
+          'Hours':        actData.total.toFixed(2)
+        });
+      }
     }
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows),'Activity Summary');
-  if(subSummaryRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(subSummaryRows),'Sub-Activity Summary');
-  for(let[proj,actMap] of projMap.entries()){
-    const projRows = [];
-    for(let[act,actData] of actMap.entries()) projRows.push({Activity:act,"Total Hours":actData.total.toFixed(2)});
-    const subRows = [];
-    for(let[act,actData] of actMap.entries()) for(let[sub,hrs] of actData.subs.entries()) subRows.push({Activity:act,"Sub-Activity":sub,"Hours":hrs.toFixed(2)});
-    const details = jobEntries.filter(e=>e.projectName===proj).map(e=>({Date:e.date,Worker:e.workerName,Activity:e.activity,"Sub-Activity":e.subActivity||'','Hours':e.hours.toFixed(2),Remark:e.detailReason||''}));
-    const sheetName = proj.replace(/[\/:*?\[\]]/g,'').slice(0,28);
-    const ws = XLSX.utils.json_to_sheet(projRows);
-    if(subRows.length){ XLSX.utils.sheet_add_aoa(ws,[[],['',"--- Sub-Activity Breakdown ---"]], {origin:-1}); XLSX.utils.sheet_add_json(ws,subRows,{origin:-1,skipHeader:false}); }
-    XLSX.utils.sheet_add_aoa(ws,[[],['',"--- Detailed Entries ---"]], {origin:-1});
-    XLSX.utils.sheet_add_json(ws,details,{origin:-1,skipHeader:false});
-    XLSX.utils.book_append_sheet(wb,ws,sheetName);
   }
-  XLSX.writeFile(wb,`IndusFireSafety_Hours_${getToday()}.xlsx`);
-  showToast('All projects exported!');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(hierarchyRows), 'Activity Summary');
+
+  // ── 3. Sheet 2: Worker Contributions (Project → Worker → Total Hours) ──
+  const workerContribRows = [];
+  // Group by project first
+  const projWorkerMap = new Map(); // project → [ {worker, hours} ]
+  for (const [ck, hrs] of contributionMap.entries()) {
+    const [proj, wkr] = ck.split('||');
+    if (!projWorkerMap.has(proj)) projWorkerMap.set(proj, []);
+    projWorkerMap.get(proj).push({ worker: wkr, hours: hrs });
+  }
+  for (const [proj, workerList] of projWorkerMap.entries()) {
+    const projTotal = workerList.reduce((s, w) => s + w.hours, 0);
+    // Sort workers by hours desc
+    workerList.sort((a, b) => b.hours - a.hours);
+    // Project header
+    workerContribRows.push({ Project: proj, Worker: '', 'Total Hours': projTotal.toFixed(2), '% of Project': '100%' });
+    for (const { worker, hours } of workerList) {
+      const pct = projTotal > 0 ? ((hours / projTotal) * 100).toFixed(1) : '0.0';
+      workerContribRows.push({ Project: '', Worker: worker, 'Total Hours': hours.toFixed(2), '% of Project': pct + '%' });
+    }
+    // Blank separator
+    workerContribRows.push({ Project: '', Worker: '', 'Total Hours': '', '% of Project': '' });
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(workerContribRows), 'Worker Contributions');
+
+  // ── 4. Sheet 3: Sub-Activity Detail (flat) ──
+  const subSummaryRows = [];
+  for (const [proj, actMap] of projMap.entries())
+    for (const [act, actData] of actMap.entries())
+      for (const [sub, hrs] of actData.subs.entries())
+        subSummaryRows.push({ Project: proj, Activity: act, 'Sub-Activity': sub, 'Hours': hrs.toFixed(2) });
+  if (subSummaryRows.length)
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(subSummaryRows), 'Sub-Activity Detail');
+
+  // ── 5. Per-project sheets (Activity + Sub + Full Detail) ──
+  for (const [proj, actMap] of projMap.entries()) {
+    const projRows = [];
+    for (const [act, actData] of actMap.entries())
+      projRows.push({ Activity: act, 'Total Hours': actData.total.toFixed(2) });
+
+    const subRows = [];
+    for (const [act, actData] of actMap.entries())
+      for (const [sub, hrs] of actData.subs.entries())
+        subRows.push({ Activity: act, 'Sub-Activity': sub, 'Hours': hrs.toFixed(2) });
+
+    const details = jobEntries
+      .filter(e => e.projectName === proj)
+      .map(e => ({
+        Date: e.date,
+        Worker: e.workerName,
+        Activity: e.activity,
+        'Sub-Activity': e.subActivity || '',
+        Hours: e.hours.toFixed(2),
+        Remark: e.detailReason || ''
+      }));
+
+    const sheetName = proj.replace(/[\/:*?\[\]]/g, '').slice(0, 28);
+    const ws = XLSX.utils.json_to_sheet(projRows);
+    if (subRows.length) {
+      XLSX.utils.sheet_add_aoa(ws, [[], ['', '--- Sub-Activity Breakdown ---']], { origin: -1 });
+      XLSX.utils.sheet_add_json(ws, subRows, { origin: -1, skipHeader: false });
+    }
+    XLSX.utils.sheet_add_aoa(ws, [[], ['', '--- Detailed Entries ---']], { origin: -1 });
+    XLSX.utils.sheet_add_json(ws, details, { origin: -1, skipHeader: false });
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  }
+
+  XLSX.writeFile(wb, `IndusFireSafety_Hours_${getToday()}.xlsx`);
+  showToast('All projects exported with Worker Contributions!');
 }
 
 function buildChangeAdminPass(){
@@ -2484,9 +2598,11 @@ function _rtRefreshUI(label){
       renderAdminSection(activeAdminSection);
 
     } else if (currentMode === 'worker' && loggedInWorker) {
-      if (_workerTab === 'log') {
-        // ✅ Worker is on the entry form tab:
-        // Only refresh the stats + side panels, NOT the form itself.
+      if (_workerTab === 'log' && _workerHasDirtyRows()) {
+        // ✅ Worker has unsaved data in the form — ONLY update side panels
+        _rtWorkerSoftRefresh();
+      } else if (_workerTab === 'log') {
+        // Log tab but no dirty rows → safe to do a soft refresh too (no flicker)
         _rtWorkerSoftRefresh();
       } else {
         // Worker is on history/pending/change-pin tabs: full re-render is safe
@@ -2509,6 +2625,20 @@ function _rtWorkerSoftRefresh(){
   const bar = document.getElementById('hoursProgressBar');
   if (bar) bar.style.width = Math.min(100, (booked / 7.5) * 100) + '%';
 
+  // Update Today's Approved panel
+  const todayEntries = jobEntries.filter(e => e.workerName === worker.name && e.date === today);
+  const compactDiv   = document.getElementById('compactTodayEntries');
+  if (compactDiv) {
+    if (!todayEntries.length) {
+      compactDiv.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i>No approved entries today</div>';
+    } else {
+      compactDiv.innerHTML = `<table class="pro-table">${todayEntries.map(e => `<tr>
+        <td>${escapeHtml(e.activity)}${e.subActivity ? ' <span style="color:var(--text-3);">('+escapeHtml(e.subActivity)+')</span>' : ''}</td>
+        <td style="text-align:right;"><span class="chip chip-fire">${e.hours.toFixed(1)}h</span></td>
+      </tr>`).join('')}</table>`;
+    }
+  }
+
   // Update pending entries panel
   const myPending = pendingEntries.filter(e => e.workerName === worker.name && e.status === 'pending');
   const pendDiv   = document.getElementById('workerPendingEntries');
@@ -2527,6 +2657,21 @@ function _rtWorkerSoftRefresh(){
             <i class="fas fa-clock"></i>Pending</span></td>
         </tr>`).join('')}
       </tbody></table>`;
+    }
+  }
+
+  // Update full history panel
+  const allHistory = jobEntries.filter(e => e.workerName === worker.name).sort((a, b) => b.date.localeCompare(a.date));
+  const historyDiv = document.getElementById('workerFullHistory');
+  if (historyDiv) {
+    if (!allHistory.length) {
+      historyDiv.innerHTML = '<div class="empty-state"><i class="fas fa-history"></i>No history</div>';
+    } else {
+      historyDiv.innerHTML = `<table class="pro-table"><thead><tr><th>Date</th><th>Project</th><th>Activity</th><th>Hrs</th></tr></thead>
+        <tbody>${allHistory.map(e => `<tr>
+          <td>${e.date}</td><td>${escapeHtml(e.projectName)}</td><td>${escapeHtml(e.activity)}</td>
+          <td><span class="chip chip-gold" style="font-size:0.62rem;">${e.hours.toFixed(1)}h</span></td>
+        </tr>`).join('')}</tbody></table>`;
     }
   }
 }
@@ -2604,8 +2749,16 @@ function setupRealtimeSubscriptions(){
       // Re-subscribe if channel dropped
       if(!_rtChannel) setupRealtimeSubscriptions();
       loadFromCloud().then(()=>{
-        if(currentMode==='worker' && loggedInWorker) renderWorkerDashboard();
-        else if(currentMode==='admin' && adminLoggedIn) renderAdminSection(activeAdminSection);
+        if(currentMode==='worker' && loggedInWorker){
+          // ✅ DIRTY-STATE CHECK: if worker is mid-entry, only soft-refresh panels
+          if(_workerTab === 'log' && _workerDraftRows && _workerHasDirtyRows()){
+            _rtWorkerSoftRefresh();
+          } else {
+            renderWorkerDashboard();
+          }
+        } else if(currentMode==='admin' && adminLoggedIn){
+          renderAdminSection(activeAdminSection);
+        }
       });
     }
   });
