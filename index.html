@@ -358,6 +358,7 @@
 
     @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes confettiFall { 0%{transform:translateY(0) rotate(0deg);opacity:1;} 100%{transform:translateY(110vh) rotate(720deg);opacity:0;} }
     .fade-up { animation: fadeUp 0.3s ease both; }
 
     /* ── Mobile hamburger button ── */
@@ -451,7 +452,9 @@
     <div class="nav-label">Export</div>
     <div class="nav-item" data-section="projecthours" onclick="adminNav(this,'projecthours')"><i class="fas fa-chart-bar"></i>Project Hours</div>
     <div class="nav-item" onclick="doExportExcel();if(window.innerWidth<=768)closeMobileSidebar();"><i class="fas fa-file-excel"></i>Export Excel</div>
+    <div class="nav-item" data-section="monthlyreport" onclick="adminNav(this,'monthlyreport')"><i class="fas fa-file-pdf"></i>Monthly Report</div>
     <div class="nav-label">Settings</div>
+    <div class="nav-item" data-section="whatsappsettings" onclick="adminNav(this,'whatsappsettings')"><i class="fab fa-whatsapp"></i>WhatsApp Settings</div>
     <div class="nav-item" data-section="changeadminpass" onclick="adminNav(this,'changeadminpass')"><i class="fas fa-key"></i>Change Password</div>
   </nav>
   <div class="sidebar-footer">
@@ -506,6 +509,7 @@ const STORAGE_PENDING    = "jobcard_pending_v1";
 const STORAGE_ADMIN_PASS = "jobcard_admin_pass_v1";
 const STORAGE_HALFDAY      = "jobcard_halfday_v1";
 const STORAGE_HALFDAY_HRS  = "jobcard_halfday_hrs_v1";
+const STORAGE_WA_CONFIG    = "jobcard_wa_config_v1";
 
 function getAdminPassword(){
   return localStorage.getItem(STORAGE_ADMIN_PASS) || 'admin2025';
@@ -513,6 +517,10 @@ function getAdminPassword(){
 function setAdminPassword(newPass){
   localStorage.setItem(STORAGE_ADMIN_PASS, newPass);
 }
+
+function getWAConfig(){ try{ return JSON.parse(localStorage.getItem(STORAGE_WA_CONFIG)||'{}'); }catch(_){ return {}; } }
+function saveWAConfig(cfg){ localStorage.setItem(STORAGE_WA_CONFIG, JSON.stringify(cfg)); }
+function getWorkerPhone(workerName){ const w = workers.find(x=>x.name===workerName); return w?.phone||''; }
 
 let jobEntries = [], projects = [], workers = [], activities = [], pendingEntries = [];
 let currentMode = "worker";
@@ -649,7 +657,7 @@ async function loadFromCloud(){
     window.__jcLastCloudSync = new Date().toISOString();
     try{ localStorage.setItem('jobcard_last_cloud_sync', window.__jcLastCloudSync); }catch(_e){}
 
-    workers = Array.isArray(wRes.data) ? wRes.data.map(r=>({name:r.name,pin:r.pin})) : [];
+    workers = Array.isArray(wRes.data) ? wRes.data.map(r=>({name:r.name,pin:r.pin,phone:r.phone||''})) : [];
     saveWorkers();
 
     projects = Array.isArray(pRes.data) ? pRes.data.map(r=>({id:r.id,name:r.name,active:r.active!==false})) : [];
@@ -745,13 +753,13 @@ function loadData(){
 // ── CLOUD UPSERT HELPERS ──
 async function cloudUpsertWorkers(){
   if(!isCloudReady()) return;
-  const payload = (workers||[]).filter(w=>w&&w.name&&w.pin).map(w=>({name:_jcUpper(w.name),pin:String(w.pin)}));
+  const payload = (workers||[]).filter(w=>w&&w.name&&w.pin).map(w=>({name:_jcUpper(w.name),pin:String(w.pin),phone:w.phone||''}));
   try{
     const res = await sb().from('jc_workers').upsert(payload,{onConflict:'name'});
     if(res?.error) throw res.error;
     const r2 = await sb().from('jc_workers').select('*').order('created_at',{ascending:true});
     if(r2?.error) throw r2.error;
-    if(Array.isArray(r2?.data)){ workers = r2.data.map(r=>({name:r.name,pin:r.pin})); saveWorkers(); }
+    if(Array.isArray(r2?.data)){ workers = r2.data.map(r=>({name:r.name,pin:r.pin,phone:r.phone||''})); saveWorkers(); }
   }catch(e){ _jcHandleCloudError(e,'cloudUpsertWorkers'); }
 }
 
@@ -1087,7 +1095,8 @@ function renderAdminSection(section){
   setTopbar(
     {overview:'Dashboard',workers:'Worker Management',projects:'Project Management',activities:'Activities',
      attendance:'Attendance & OT',entries:'All Entries',projecthours:'Project Hours & Export',
-     addentry:'Add Entry (Admin)',approvalqueue:'Approval Queue',changeadminpass:'Change Admin Password'}[section]||'Dashboard',
+     addentry:'Add Entry (Admin)',approvalqueue:'Approval Queue',changeadminpass:'Change Admin Password',
+     whatsappsettings:'WhatsApp & Notification Settings',monthlyreport:'Monthly Summary Report'}[section]||'Dashboard',
     'Indus Fire Safety — Admin Panel','admin'
   );
   const pendCount = pendingEntries.filter(e=>e.status==='pending').length;
@@ -1109,6 +1118,8 @@ function renderAdminSection(section){
   else if(section==='addentry')  wrap.innerHTML = buildAdminAddEntry();
   else if(section==='approvalqueue') wrap.innerHTML = buildApprovalQueue();
   else if(section==='changeadminpass') wrap.innerHTML = buildChangeAdminPass();
+  else if(section==='whatsappsettings') wrap.innerHTML = buildWhatsAppSettings();
+  else if(section==='monthlyreport') wrap.innerHTML = buildMonthlyReport();
 
   root.appendChild(wrap);
   attachSectionEvents(section);
@@ -1173,7 +1184,10 @@ function buildOverview(){
     <div class="panel fade-up" style="animation-delay:0.25s;">
       <div class="panel-header">
         <div class="panel-title"><i class="fas fa-history"></i>Recent Entries</div>
-        <button class="btn btn-ghost btn-sm" onclick="adminNav(document.querySelector('[data-section=entries]'),'entries')">View All</button>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn btn-ghost btn-sm" style="color:var(--green);border-color:rgba(34,197,94,0.3);" onclick="adminNav(document.querySelector('[data-section=whatsappsettings]'),'whatsappsettings')"><i class="fab fa-whatsapp"></i>WA Settings</button>
+          <button class="btn btn-ghost btn-sm" onclick="adminNav(document.querySelector('[data-section=entries]'),'entries')">View All</button>
+        </div>
       </div>
       <div class="tbl-scroll">
         <table class="pro-table">
@@ -1189,6 +1203,7 @@ function buildWorkers(){
     <tr>
       <td><input type="text" class="admin-input worker-name-edit" data-idx="${idx}" value="${escapeHtml(w.name)}" style="min-width:140px;"></td>
       <td><input type="text" class="admin-input worker-pin-edit"  data-idx="${idx}" value="${escapeHtml(w.pin)}"  style="max-width:80px;"></td>
+      <td><input type="text" class="admin-input worker-phone-edit" data-idx="${idx}" value="${escapeHtml(w.phone||'')}" placeholder="91XXXXXXXXXX" style="max-width:130px;"></td>
       <td>${getWorkerDailyHours(w.name,getToday()).toFixed(1)}h</td>
       <td><button class="removeWorkerBtn btn btn-danger btn-xs" data-idx="${idx}" data-name="${escapeHtml(w.name)}"><i class="fas fa-trash"></i></button></td>
     </tr>`).join('');
@@ -1201,9 +1216,12 @@ function buildWorkers(){
           <button id="saveWorkersBtn" class="btn btn-fire  btn-sm"><i class="fas fa-save"></i>Save Changes</button>
         </div>
       </div>
+      <div style="background:var(--green-soft);border:1px solid rgba(34,197,94,0.25);border-radius:10px;padding:10px 16px;margin:14px 20px 0;font-size:0.73rem;color:var(--green);display:flex;align-items:center;gap:8px;">
+        <i class="fab fa-whatsapp" style="font-size:1rem;"></i>Add WhatsApp number (with country code, e.g. <b>919876543210</b>) to enable job card reminders for each worker.
+      </div>
       <div class="tbl-scroll">
         <table class="pro-table">
-          <thead><tr><th>Name</th><th>PIN</th><th>Today's Hours</th><th>Action</th></tr></thead>
+          <thead><tr><th>Name</th><th>PIN</th><th>WhatsApp No.</th><th>Today's Hours</th><th>Action</th></tr></thead>
           <tbody id="workersTbody">${rows}</tbody>
         </table>
       </div>
@@ -1618,9 +1636,10 @@ function attachSectionEvents(section){
       document.querySelectorAll('.worker-name-edit').forEach((inp, i)=>{
         const name = inp.value.trim();
         const pin  = document.querySelector(`.worker-pin-edit[data-idx="${i}"]`)?.value.trim() || '';
+        const phone = document.querySelector(`.worker-phone-edit[data-idx="${i}"]`)?.value.trim() || '';
         // Skip blank or unedited placeholder rows
         if(name && name !== 'New Worker' && pin){
-          nw.push({name, pin});
+          nw.push({name, pin, phone});
         }
       });
 
@@ -1917,6 +1936,12 @@ function attachSectionEvents(section){
   // ── CHANGE ADMIN PASSWORD ─────────────────────────────────────
   if(section === 'changeadminpass'){
     attachChangeAdminPassEvents();
+  }
+  if(section === 'whatsappsettings'){
+    attachWhatsAppSettingsEvents();
+  }
+  if(section === 'monthlyreport'){
+    attachMonthlyReportEvents();
   }
 }
 
@@ -2225,6 +2250,478 @@ function doExportExcel(){
 
   XLSX.writeFile(wb, `IndusFireSafety_Hours_${getToday()}.xlsx`);
   showToast('All projects exported with Worker Contributions!');
+}
+
+// ── CONFETTI ANIMATION ──
+function launchConfetti(){
+  const colors = ['#FF4500','#FF8C42','#F5A623','#22C55E','#3B82F6','#ffffff'];
+  const container = document.createElement('div');
+  container.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:99999;overflow:hidden;';
+  document.body.appendChild(container);
+  for(let i=0;i<120;i++){
+    const piece = document.createElement('div');
+    const color = colors[Math.floor(Math.random()*colors.length)];
+    const size  = 6+Math.random()*8;
+    const left  = Math.random()*100;
+    const delay = Math.random()*1.2;
+    const dur   = 2+Math.random()*2;
+    const shape = Math.random()>0.5 ? '50%' : '2px';
+    piece.style.cssText = `
+      position:absolute;top:-20px;left:${left}%;
+      width:${size}px;height:${size}px;
+      background:${color};border-radius:${shape};
+      animation:confettiFall ${dur}s ease-in ${delay}s forwards;
+      transform:rotate(${Math.random()*360}deg);`;
+    container.appendChild(piece);
+  }
+  const style = document.createElement('style');
+  style.textContent = `@keyframes confettiFall{
+    0%{transform:translateY(0) rotate(0deg) scale(1);opacity:1;}
+    80%{opacity:1;}
+    100%{transform:translateY(110vh) rotate(${360+Math.random()*720}deg) scale(0.5);opacity:0;}
+  }`;
+  document.head.appendChild(style);
+  setTimeout(()=>{ container.remove(); style.remove(); }, 4500);
+}
+
+// ── WHATSAPP MESSAGE SENDER (via Twilio or CallMeBot) ──
+function buildWALink(phone, message){
+  // Open WhatsApp Web pre-filled message (no API needed for manual send)
+  const encoded = encodeURIComponent(message);
+  return `https://wa.me/${phone}?text=${encoded}`;
+}
+
+async function sendWAViaTwilio(phone, message){
+  const cfg = getWAConfig();
+  if(!cfg.twilioSid || !cfg.twilioToken || !cfg.twilioFrom){
+    showToast('Twilio not configured. Check WhatsApp Settings.','error');
+    return false;
+  }
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${cfg.twilioSid}/Messages.json`;
+  const body = new URLSearchParams({
+    From: 'whatsapp:+' + cfg.twilioFrom,
+    To:   'whatsapp:+' + phone,
+    Body: message
+  });
+  try{
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Basic ' + btoa(cfg.twilioSid + ':' + cfg.twilioToken),
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body
+    });
+    return res.ok;
+  }catch(e){
+    console.warn('Twilio send failed:', e);
+    return false;
+  }
+}
+
+async function sendWAReminderToWorker(workerName, message){
+  const phone = getWorkerPhone(workerName);
+  if(!phone){ showToast(`No WhatsApp number for ${workerName}`,'info'); return false; }
+  const cfg = getWAConfig();
+  if(cfg.useTwilio && cfg.twilioSid){
+    return await sendWAViaTwilio(phone, message);
+  } else {
+    // Fallback: open WhatsApp Web link
+    window.open(buildWALink(phone, message), '_blank');
+    return true;
+  }
+}
+
+// ── SMART NOTIFICATION SCHEDULER ──
+function setupNotificationScheduler(){
+  if(window._notifSchedulerRunning) return;
+  window._notifSchedulerRunning = true;
+  setInterval(async ()=>{
+    const cfg = getWAConfig();
+    if(!cfg.notificationsEnabled) return;
+    const now  = new Date();
+    const hhmm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    const today = getToday();
+    // Only fire once per trigger time per day
+    const fireKey = `jc_notif_fired_${today}`;
+    let firedToday = {};
+    try{ firedToday = JSON.parse(localStorage.getItem(fireKey)||'{}'); }catch(_){}
+
+    const halfTrigger = cfg.halfDayTime || '12:30';
+    const eodTrigger  = cfg.eodTime     || '17:10';
+
+    async function fireReminders(slotKey){
+      if(firedToday[slotKey]) return; // already fired
+      firedToday[slotKey] = true;
+      localStorage.setItem(fireKey, JSON.stringify(firedToday));
+
+      const att = getAttendanceMap()[today] || {};
+      const presentWorkers = workers.filter(w=> att[w.name] === true);
+
+      for(const w of presentWorkers){
+        const booked  = getWorkerDailyHours(w.name, today);
+        const limit   = getWorkerDayLimit(w.name, today);
+        const pending = pendingEntries.filter(e=>e.workerName===w.name&&e.date===today&&e.status==='pending').length;
+        const filled  = booked > 0 || pending > 0;
+        if(filled) continue; // already filled — skip
+        const msg = slotKey === 'halftime'
+          ? `🔔 Indus Fire Safety\nHello ${w.name}, please fill your half-day job card.\nWork logged so far: ${booked.toFixed(1)}h / ${limit.toFixed(1)}h. Open app to submit. 🙏`
+          : `🔔 Indus Fire Safety\nHello ${w.name}, end of day reminder — please fill your job card before leaving.\nWork logged: ${booked.toFixed(1)}h / ${limit.toFixed(1)}h. 📋`;
+        if(w.phone){
+          await sendWAReminderToWorker(w.name, msg);
+          await new Promise(r=>setTimeout(r,600)); // small delay between messages
+        }
+      }
+
+      // Admin summary at EOD
+      if(slotKey === 'eod'){
+        const adminPhone = cfg.adminPhone;
+        if(adminPhone){
+          const filled  = presentWorkers.filter(w=> getWorkerDailyHours(w.name,today)>0 || pendingEntries.some(e=>e.workerName===w.name&&e.date===today)).length;
+          const missed  = presentWorkers.length - filled;
+          const pendCnt = pendingEntries.filter(e=>e.date===today&&e.status==='pending').length;
+          const msg = `📊 *Indus Fire Safety — Daily Summary* (${today})\n\n✅ Workers filled: ${filled}\n❌ Workers NOT filled: ${missed}\n⏳ Pending approvals: ${pendCnt}\n👷 Total present: ${presentWorkers.length}\n\nPlease review in admin panel.`;
+          const cfgWA = getWAConfig();
+          if(cfgWA.useTwilio && cfgWA.twilioSid){
+            await sendWAViaTwilio(adminPhone, msg);
+          } else {
+            window.open(buildWALink(adminPhone, msg), '_blank');
+          }
+        }
+      }
+    }
+
+    if(hhmm === halfTrigger) await fireReminders('halftime');
+    if(hhmm === eodTrigger)  await fireReminders('eod');
+  }, 30000); // check every 30 seconds
+}
+
+// ── WHATSAPP SETTINGS SECTION ──
+function buildWhatsAppSettings(){
+  const cfg = getWAConfig();
+  const workerRows = workers.map(w=>`
+    <tr>
+      <td style="font-weight:500;">${escapeHtml(w.name)}</td>
+      <td><span class="${w.phone?'chip chip-green':'chip chip-gold'}" style="font-size:0.65rem;">
+        ${w.phone?`<i class="fab fa-whatsapp"></i>${escapeHtml(w.phone)}`:'<i class="fas fa-times"></i>Not set'}
+      </span></td>
+    </tr>`).join('');
+
+  return `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+      <div>
+        <div class="panel fade-up">
+          <div class="panel-header">
+            <div class="panel-title"><i class="fab fa-whatsapp" style="color:#22C55E;"></i>Notification Schedule</div>
+          </div>
+          <div class="panel-body">
+            <div style="background:var(--green-soft);border:1px solid rgba(34,197,94,0.25);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:0.73rem;color:var(--green);">
+              <i class="fas fa-info-circle" style="margin-right:6px;"></i>
+              App checks every 30 seconds. At the trigger times, it sends WhatsApp reminders to present workers who have NOT filled their job card.
+            </div>
+            <div style="margin-bottom:14px;">
+              <label class="toggle-wrap" style="font-size:0.78rem;font-weight:600;gap:10px;">
+                <input type="checkbox" id="waEnableToggle" ${cfg.notificationsEnabled?'checked':''}>
+                Enable Auto Notifications
+              </label>
+            </div>
+            <div style="margin-bottom:14px;">
+              <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">HALF-DAY REMINDER TIME</div>
+              <input type="time" id="waHalfTime" class="inp" value="${cfg.halfDayTime||'12:30'}" style="width:auto;">
+            </div>
+            <div style="margin-bottom:14px;">
+              <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">END-OF-DAY REMINDER TIME</div>
+              <input type="time" id="waEodTime" class="inp" value="${cfg.eodTime||'17:10'}" style="width:auto;">
+            </div>
+            <div style="margin-bottom:14px;">
+              <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">ADMIN WHATSAPP NUMBER (for daily summary)</div>
+              <input type="text" id="waAdminPhone" class="inp" placeholder="919876543210" value="${escapeHtml(cfg.adminPhone||'')}">
+              <div style="font-size:0.65rem;color:var(--text-3);margin-top:4px;">Country code + number, no +, no spaces. e.g. 919876543210</div>
+            </div>
+            <button id="waTestAdminSummary" class="btn btn-ghost btn-sm" style="margin-bottom:14px;">
+              <i class="fab fa-whatsapp"></i>Test Admin Summary Now
+            </button>
+          </div>
+        </div>
+
+        <div class="panel fade-up" style="margin-top:20px;">
+          <div class="panel-header">
+            <div class="panel-title"><i class="fas fa-cog"></i>Twilio API (optional)</div>
+          </div>
+          <div class="panel-body">
+            <div style="background:var(--blue-soft);border:1px solid rgba(59,130,246,0.2);border-radius:10px;padding:11px 14px;margin-bottom:16px;font-size:0.73rem;color:var(--blue);">
+              <i class="fas fa-info-circle" style="margin-right:6px;"></i>
+              Without Twilio, clicking "Send" opens WhatsApp Web with the pre-filled message. With Twilio, messages send <b>automatically</b> in the background.
+            </div>
+            <div style="margin-bottom:14px;">
+              <label class="toggle-wrap" style="font-size:0.78rem;font-weight:600;gap:10px;">
+                <input type="checkbox" id="waUseTwilio" ${cfg.useTwilio?'checked':''}>
+                Use Twilio API (auto-send)
+              </label>
+            </div>
+            <div id="twilioFields" style="${cfg.useTwilio?'':'display:none;'}">
+              <div style="margin-bottom:12px;">
+                <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">TWILIO ACCOUNT SID</div>
+                <input type="text" id="waTwilioSid" class="inp" placeholder="ACxxxxxx..." value="${escapeHtml(cfg.twilioSid||'')}">
+              </div>
+              <div style="margin-bottom:12px;">
+                <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">TWILIO AUTH TOKEN</div>
+                <input type="password" id="waTwilioToken" class="inp" placeholder="Auth token" value="${escapeHtml(cfg.twilioToken||'')}">
+              </div>
+              <div style="margin-bottom:12px;">
+                <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">TWILIO FROM NUMBER (digits only)</div>
+                <input type="text" id="waTwilioFrom" class="inp" placeholder="14155238886" value="${escapeHtml(cfg.twilioFrom||'')}">
+              </div>
+            </div>
+            <button id="waSaveConfigBtn" class="btn btn-fire btn-sm"><i class="fas fa-save"></i>Save Settings</button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="panel fade-up">
+          <div class="panel-header">
+            <div class="panel-title"><i class="fas fa-paper-plane"></i>Send Manual Reminder</div>
+          </div>
+          <div class="panel-body">
+            <div style="font-size:0.72rem;color:var(--text-2);margin-bottom:12px;">Send a WhatsApp message to a worker or all workers right now.</div>
+            <div style="margin-bottom:12px;">
+              <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">SELECT WORKER</div>
+              <select id="waManualWorker" class="sel">
+                <option value="all">All Workers (with numbers)</option>
+                ${workers.map(w=>`<option value="${escapeHtml(w.name)}">${escapeHtml(w.name)}${w.phone?' ✓':' (no number)'}</option>`).join('')}
+              </select>
+            </div>
+            <div style="margin-bottom:12px;">
+              <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">MESSAGE</div>
+              <textarea id="waManualMsg" class="inp" rows="3" placeholder="Type your message..." style="resize:vertical;">🔔 Indus Fire Safety: Please fill your job card for today. Thank you.</textarea>
+            </div>
+            <button id="waManualSendBtn" class="btn btn-green btn-sm"><i class="fab fa-whatsapp"></i>Send WhatsApp</button>
+          </div>
+        </div>
+
+        <div class="panel fade-up" style="margin-top:20px;">
+          <div class="panel-header">
+            <div class="panel-title"><i class="fas fa-users"></i>Worker Numbers Status</div>
+          </div>
+          <div class="tbl-scroll">
+            <table class="pro-table">
+              <thead><tr><th>Worker</th><th>WhatsApp Status</th></tr></thead>
+              <tbody>${workerRows}</tbody>
+            </table>
+          </div>
+          <div style="padding:10px 20px;font-size:0.72rem;color:var(--text-3);">
+            Edit numbers in the Workers section → save → come back here.
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function attachWhatsAppSettingsEvents(){
+  document.getElementById('waUseTwilio')?.addEventListener('change', function(){
+    document.getElementById('twilioFields').style.display = this.checked?'':'none';
+  });
+
+  document.getElementById('waSaveConfigBtn')?.addEventListener('click', ()=>{
+    const cfg = {
+      notificationsEnabled: document.getElementById('waEnableToggle')?.checked || false,
+      halfDayTime:  document.getElementById('waHalfTime')?.value  || '12:30',
+      eodTime:      document.getElementById('waEodTime')?.value   || '17:10',
+      adminPhone:   document.getElementById('waAdminPhone')?.value.trim() || '',
+      useTwilio:    document.getElementById('waUseTwilio')?.checked || false,
+      twilioSid:    document.getElementById('waTwilioSid')?.value.trim()   || '',
+      twilioToken:  document.getElementById('waTwilioToken')?.value.trim() || '',
+      twilioFrom:   document.getElementById('waTwilioFrom')?.value.trim()  || ''
+    };
+    saveWAConfig(cfg);
+    if(cfg.notificationsEnabled) setupNotificationScheduler();
+    showToast('WhatsApp settings saved!');
+  });
+
+  document.getElementById('waTestAdminSummary')?.addEventListener('click', async ()=>{
+    const cfg = getWAConfig();
+    const adminPhone = document.getElementById('waAdminPhone')?.value.trim() || cfg.adminPhone;
+    if(!adminPhone){ showToast('Enter admin WhatsApp number first','error'); return; }
+    const today = getToday();
+    const att = getAttendanceMap()[today] || {};
+    const presentWorkers = workers.filter(w=> att[w.name] === true);
+    const filled  = presentWorkers.filter(w=> getWorkerDailyHours(w.name,today)>0).length;
+    const missed  = presentWorkers.length - filled;
+    const pendCnt = pendingEntries.filter(e=>e.date===today&&e.status==='pending').length;
+    const msg = `📊 *Indus Fire Safety — Daily Summary* (${today})\n\n✅ Workers filled: ${filled}\n❌ Workers NOT filled: ${missed}\n⏳ Pending approvals: ${pendCnt}\n👷 Total present: ${presentWorkers.length}\n\n(Test message from admin panel)`;
+    const tempCfg = {...getWAConfig(), adminPhone};
+    saveWAConfig(tempCfg);
+    if(cfg.useTwilio && cfg.twilioSid){
+      const ok = await sendWAViaTwilio(adminPhone, msg);
+      showToast(ok?'Admin summary sent via Twilio!':'Twilio send failed','info');
+    } else {
+      window.open(buildWALink(adminPhone, msg), '_blank');
+      showToast('Opened WhatsApp with summary message','success');
+    }
+  });
+
+  document.getElementById('waManualSendBtn')?.addEventListener('click', async ()=>{
+    const target = document.getElementById('waManualWorker')?.value;
+    const msg    = document.getElementById('waManualMsg')?.value.trim();
+    if(!msg){ showToast('Enter a message','error'); return; }
+    const btn = document.getElementById('waManualSendBtn');
+    btn.disabled = true; btn.innerHTML='<i class="fas fa-spinner fa-spin"></i>Sending…';
+
+    if(target === 'all'){
+      const toSend = workers.filter(w=>w.phone);
+      if(!toSend.length){ showToast('No workers have WhatsApp numbers','error'); btn.disabled=false; btn.innerHTML='<i class="fab fa-whatsapp"></i>Send WhatsApp'; return; }
+      let sent = 0;
+      for(const w of toSend){
+        const ok = await sendWAReminderToWorker(w.name, msg);
+        if(ok) sent++;
+        await new Promise(r=>setTimeout(r,500));
+      }
+      showToast(`Message sent to ${sent} workers!`);
+    } else {
+      const ok = await sendWAReminderToWorker(target, msg);
+      showToast(ok?'Message sent!':'Failed — check phone number','info');
+    }
+    btn.disabled = false; btn.innerHTML='<i class="fab fa-whatsapp"></i>Send WhatsApp';
+  });
+}
+
+// ── MONTHLY REPORT SECTION ──
+function buildMonthlyReport(){
+  const now = new Date();
+  const defaultMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const workerOptions = workers.map(w=>`<option value="${escapeHtml(w.name)}">${escapeHtml(w.name)}</option>`).join('');
+
+  return `
+    <div class="panel fade-up" style="max-width:900px;">
+      <div class="panel-header">
+        <div class="panel-title"><i class="fas fa-file-pdf"></i>Monthly Summary Report</div>
+        <span class="chip chip-blue"><i class="fas fa-calendar"></i>Per Worker</span>
+      </div>
+      <div class="panel-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:14px;align-items:end;margin-bottom:20px;flex-wrap:wrap;">
+          <div>
+            <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">MONTH</div>
+            <input type="month" id="mrMonth" class="inp" value="${defaultMonth}">
+          </div>
+          <div>
+            <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">WORKER</div>
+            <select id="mrWorker" class="sel">
+              <option value="all">All Workers</option>
+              ${workerOptions}
+            </select>
+          </div>
+          <div>
+            <div style="font-size:0.65rem;color:var(--text-3);margin-bottom:5px;font-weight:600;">FORMAT</div>
+            <select id="mrFormat" class="sel">
+              <option value="xlsx">Excel (.xlsx)</option>
+              <option value="wa">WhatsApp Summary</option>
+            </select>
+          </div>
+          <button id="mrGenerateBtn" class="btn btn-fire"><i class="fas fa-file-export"></i>Generate</button>
+        </div>
+        <div id="mrPreview" style="margin-top:4px;"></div>
+      </div>
+    </div>`;
+}
+
+function attachMonthlyReportEvents(){
+  document.getElementById('mrGenerateBtn')?.addEventListener('click', ()=>{
+    const month   = document.getElementById('mrMonth')?.value;
+    const worker  = document.getElementById('mrWorker')?.value;
+    const format  = document.getElementById('mrFormat')?.value;
+    if(!month){ showToast('Select a month','error'); return; }
+    if(format === 'xlsx') doMonthlyExcelExport(month, worker);
+    else                  doMonthlyWASummary(month, worker);
+  });
+}
+
+function doMonthlyExcelExport(month, workerFilter){
+  const [yr, mo] = month.split('-');
+  const prefix = `${yr}-${mo}`;
+  const wb = XLSX.utils.book_new();
+
+  const targetWorkers = workerFilter==='all' ? workers : workers.filter(w=>w.name===workerFilter);
+  if(!targetWorkers.length){ showToast('No workers found','error'); return; }
+
+  const attMap  = getAttendanceMap();
+  const hdMap   = getHalfDayMap();
+
+  for(const w of targetWorkers){
+    const entries = jobEntries.filter(e=>e.workerName===w.name && (e.date||'').startsWith(prefix));
+    const monthDays = Object.keys(attMap).filter(d=>d.startsWith(prefix));
+    const presentDays  = monthDays.filter(d=> attMap[d]?.[w.name]===true).length;
+    const halfDays     = monthDays.filter(d=> hdMap[d]?.[w.name]===true).length;
+    const totalHrs     = entries.reduce((s,e)=>s+(e.hours||0),0);
+
+    // Summary sheet per worker
+    const projBreak = {};
+    entries.forEach(e=>{
+      if(!projBreak[e.projectName]) projBreak[e.projectName]={hours:0};
+      projBreak[e.projectName].hours += (e.hours||0);
+    });
+
+    const summaryRows = [
+      {Field:'Worker',        Value: w.name},
+      {Field:'Month',         Value: month},
+      {Field:'Days Present',  Value: presentDays},
+      {Field:'Half Days',     Value: halfDays},
+      {Field:'Full Days',     Value: presentDays - halfDays},
+      {Field:'Total Hours',   Value: totalHrs.toFixed(2)},
+      {Field:'Avg Hrs/Day',   Value: presentDays>0?(totalHrs/presentDays).toFixed(2):'0.00'},
+      {Field:''},
+      {Field:'--- Project Breakdown ---'},
+      ...Object.entries(projBreak).map(([p,v])=>({Field:p, Value:v.hours.toFixed(2)+' hrs'}))
+    ];
+
+    const detailRows = entries.map(e=>({
+      'Date':e.date,'Project':e.projectName,'Activity':e.activity,
+      'Sub-Activity':e.subActivity||'','Hours':e.hours.toFixed(2),'Remark':e.detailReason||''
+    }));
+
+    const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+    const wsDetail  = XLSX.utils.json_to_sheet(detailRows.length?detailRows:[{Info:'No entries this month'}]);
+    const safeName  = w.name.replace(/[^a-zA-Z0-9]/g,'').substring(0,20);
+    XLSX.utils.book_append_sheet(wb, wsSummary, safeName+'_Summary');
+    XLSX.utils.book_append_sheet(wb, wsDetail,  safeName+'_Detail');
+  }
+
+  const filename = `Monthly_Report_${month}_${workerFilter==='all'?'All':workerFilter.replace(/[^a-zA-Z0-9]/g,'_')}.xlsx`;
+  XLSX.writeFile(wb, filename);
+  showToast('Monthly report exported!');
+}
+
+async function doMonthlyWASummary(month, workerFilter){
+  const [yr, mo] = month.split('-');
+  const prefix = `${yr}-${mo}`;
+  const cfg    = getWAConfig();
+  const targetWorkers = workerFilter==='all' ? workers : workers.filter(w=>w.name===workerFilter);
+  const attMap = getAttendanceMap();
+  const hdMap  = getHalfDayMap();
+  let sent = 0;
+
+  for(const w of targetWorkers){
+    if(!w.phone) continue;
+    const entries      = jobEntries.filter(e=>e.workerName===w.name&&(e.date||'').startsWith(prefix));
+    const monthDays    = Object.keys(attMap).filter(d=>d.startsWith(prefix));
+    const presentDays  = monthDays.filter(d=>attMap[d]?.[w.name]===true).length;
+    const halfDays     = monthDays.filter(d=>hdMap[d]?.[w.name]===true).length;
+    const totalHrs     = entries.reduce((s,e)=>s+(e.hours||0),0);
+    const projLines    = {};
+    entries.forEach(e=>{ if(!projLines[e.projectName])projLines[e.projectName]=0; projLines[e.projectName]+=(e.hours||0); });
+    const projStr = Object.entries(projLines).map(([p,h])=>`  • ${p}: ${h.toFixed(1)}h`).join('\n') || '  • No entries';
+
+    const msg = `📋 *Indus Fire Safety — Monthly Summary*\n👷 ${w.name}\n📅 Month: ${month}\n\n🗓️ Present: ${presentDays} days (${halfDays} half days)\n⏱️ Total Hours: ${totalHrs.toFixed(1)}h\n📊 Avg/Day: ${presentDays>0?(totalHrs/presentDays).toFixed(1):'0.0'}h\n\n*Project Breakdown:*\n${projStr}\n\nThank you for your hard work! 🙏`;
+
+    if(cfg.useTwilio && cfg.twilioSid){
+      await sendWAViaTwilio(w.phone, msg);
+    } else {
+      window.open(buildWALink(w.phone, msg), '_blank');
+    }
+    sent++;
+    await new Promise(r=>setTimeout(r,600));
+  }
+  showToast(`Monthly summary sent to ${sent} workers!`);
 }
 
 function buildChangeAdminPass(){
@@ -2713,6 +3210,9 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
         count++;
       }
       showToast(`${count} entries submitted!`);
+      // ── Confetti if worker reached full day limit ──
+      const newTotal = getWorkerDailyHours(worker.name, today) + rows.reduce((s,r)=>s+(r.hours||0),0);
+      if(newTotal >= dayLimit) setTimeout(()=>launchConfetti(), 400);
       // ✅ Clear draft (memory + localStorage) after successful submit
       _workerDraftRows = null;
       _clearDraftStorage();
@@ -2943,6 +3443,10 @@ function setupRealtimeSubscriptions(){
 
   // 4. Start realtime subscriptions
   setupRealtimeSubscriptions();
+
+  // 4b. Start notification scheduler if enabled
+  const _waCfg = getWAConfig();
+  if(_waCfg.notificationsEnabled) setupNotificationScheduler();
 
   // 5. Fallback: re-subscribe + refresh when tab becomes visible again
   document.addEventListener('visibilitychange', function(){
