@@ -7,8 +7,7 @@
   <meta name="theme-color" content="#0B0D14">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <script defer src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -38,7 +37,7 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       background: var(--bg-base);
       color: var(--text-1);
       min-height: 100vh;
@@ -358,11 +357,36 @@
     }
 
     @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes spin { to { transform: rotate(360deg); } }
     .fade-up { animation: fadeUp 0.3s ease both; }
+
+    /* ── Mobile hamburger button ── */
+    .mobile-menu-btn {
+      display: none;
+      align-items: center; justify-content: center;
+      width: 38px; height: 38px;
+      border-radius: 9px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      color: var(--text-1);
+      cursor: pointer;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+
+    /* ── Sidebar overlay backdrop ── */
+    .sidebar-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(2px);
+      z-index: 99;
+    }
+    .sidebar-overlay.visible { display: block; }
 
     @media (max-width: 768px) {
       .sidebar { transform: translateX(-100%); }
-      .sidebar.open { transform: translateX(0); }
+      .sidebar.open { transform: translateX(0); box-shadow: 4px 0 32px rgba(0,0,0,0.5); }
       .main-content { margin-left: 0; }
       .col-2, .col-3 { grid-template-columns: 1fr; }
       .stat-grid { grid-template-columns: 1fr; }
@@ -372,6 +396,11 @@
       .inp, .sel { padding: 12px 12px; font-size: 0.9rem; border-radius: 12px; }
       .btn { min-height: 44px; }
       .pro-table { font-size: 0.8rem; }
+      .mobile-menu-btn { display: flex; }
+      /* Always show the close button inside sidebar on mobile */
+      #sidebarCloseBtn { display: block !important; }
+      /* Live pulse on mobile: bottom-center so it doesn't overlap nav */
+      #_livePulse { left: 50% !important; transform: translateX(-50%); bottom: 16px !important; white-space: nowrap; }
     }
 
     .hours-summary {
@@ -396,13 +425,15 @@
 </head>
 <body>
 
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeMobileSidebar()"></div>
 <aside class="sidebar" id="adminSidebar" style="display:none;">
   <div class="sidebar-logo">
     <div class="logo-badge"><i class="fas fa-fire-extinguisher" style="color:white;font-size:1rem;"></i></div>
-    <div>
+    <div style="flex:1;">
       <div class="brand-name">INDUS FIRE</div>
       <div class="brand-sub">Safety Systems</div>
     </div>
+    <button onclick="closeMobileSidebar()" title="Close menu" style="display:none;background:none;border:none;color:var(--text-3);cursor:pointer;font-size:1rem;padding:4px;" id="sidebarCloseBtn"><i class="fas fa-times"></i></button>
   </div>
   <nav class="sidebar-nav">
     <div class="nav-label">Overview</div>
@@ -419,7 +450,7 @@
     <div class="nav-item" data-section="approvalqueue" onclick="adminNav(this,'approvalqueue')" id="approvalQueueNav"><i class="fas fa-inbox"></i>Approval Queue <span id="pendingBadge" style="display:none;background:var(--fire);color:white;font-size:0.58rem;font-weight:700;padding:1px 6px;border-radius:99px;margin-left:4px;"></span></div>
     <div class="nav-label">Export</div>
     <div class="nav-item" data-section="projecthours" onclick="adminNav(this,'projecthours')"><i class="fas fa-chart-bar"></i>Project Hours</div>
-    <div class="nav-item" onclick="doExportExcel()"><i class="fas fa-file-excel"></i>Export Excel</div>
+    <div class="nav-item" onclick="doExportExcel();if(window.innerWidth<=768)closeMobileSidebar();"><i class="fas fa-file-excel"></i>Export Excel</div>
     <div class="nav-label">Settings</div>
     <div class="nav-item" data-section="changeadminpass" onclick="adminNav(this,'changeadminpass')"><i class="fas fa-key"></i>Change Password</div>
   </nav>
@@ -437,14 +468,27 @@
 
 <div class="main-content" id="mainContent">
   <div class="topbar" id="topbar" style="display:none;">
-    <div>
-      <div class="page-title" id="topbarTitle">Dashboard</div>
-      <div class="page-sub" id="topbarSub">Indus Fire Safety — Smart Job Card System</div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <button class="mobile-menu-btn" id="mobileMenuBtn" onclick="openMobileSidebar()" title="Open menu" style="display:none;">
+        <i class="fas fa-bars"></i>
+      </button>
+      <div>
+        <div class="page-title" id="topbarTitle">Dashboard</div>
+        <div class="page-sub" id="topbarSub">Indus Fire Safety — Smart Job Card System</div>
+      </div>
     </div>
     <div class="topbar-right" id="topbarRight"></div>
   </div>
 
-  <div id="appRoot" style="flex:1;"></div>
+  <div id="appRoot" style="flex:1;">
+    <!-- Shown instantly before JS runs — replaced by renderWorkerLogin() -->
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;" id="splashLoader">
+      <div style="text-align:center;">
+        <div style="width:56px;height:56px;border-radius:50%;border:3px solid rgba(255,69,0,0.2);border-top-color:var(--fire);animation:spin 0.8s linear infinite;margin:0 auto 16px;"></div>
+        <div style="font-size:0.85rem;color:var(--text-3);">Loading Indus Fire Safety…</div>
+      </div>
+    </div>
+  </div>
 
   <div class="footer-note" id="footerNote">Indus Fire Safety &nbsp;·&nbsp; Daily limit: 7.5h &nbsp;·&nbsp; Sub‑activities auto‑load</div>
 </div>
@@ -460,6 +504,8 @@ const STORAGE_WORKERS    = "jobcard_workers_v3";
 const STORAGE_ACTIVITIES = "jobcard_activities_v3";
 const STORAGE_PENDING    = "jobcard_pending_v1";
 const STORAGE_ADMIN_PASS = "jobcard_admin_pass_v1";
+const STORAGE_HALFDAY      = "jobcard_halfday_v1";
+const STORAGE_HALFDAY_HRS  = "jobcard_halfday_hrs_v1";
 
 function getAdminPassword(){
   return localStorage.getItem(STORAGE_ADMIN_PASS) || 'admin2025';
@@ -564,20 +610,26 @@ function _jcHandleCloudError(err, context){
 function _jcUpper(s){ return (s||'').toString().trim(); }
 
 function _jcPersistAttendanceMapsFromRows(rows){
-  const att = {}, ot = {}, sun = {};
+  const att = {}, ot = {}, sun = {}, hd = {}, hdHrs = {};
   (rows||[]).forEach(r=>{
     const d = r.log_date, w = r.worker_name;
     if(!d || !w) return;
-    if(!att[d]) att[d] = {};
-    if(!ot[d])  ot[d]  = {};
-    if(!sun[d]) sun[d] = {};
-    att[d][w] = !!r.present;
-    ot[d][w]  = !!r.ot_allowed;
-    sun[d][w] = !!r.sunday_approved;
+    if(!att[d])   att[d]   = {};
+    if(!ot[d])    ot[d]    = {};
+    if(!sun[d])   sun[d]   = {};
+    if(!hd[d])    hd[d]    = {};
+    if(!hdHrs[d]) hdHrs[d] = {};
+    att[d][w]   = !!r.present;
+    ot[d][w]    = !!r.ot_allowed;
+    sun[d][w]   = !!r.sunday_approved;
+    hd[d][w]    = !!r.half_day;
+    hdHrs[d][w] = r.half_day_hours != null ? parseFloat(r.half_day_hours) : 3.75;
   });
   localStorage.setItem(STORAGE_ATTENDANCE, JSON.stringify(att));
   localStorage.setItem(STORAGE_OT,         JSON.stringify(ot));
   localStorage.setItem(STORAGE_SUNDAY,     JSON.stringify(sun));
+  localStorage.setItem(STORAGE_HALFDAY,    JSON.stringify(hd));
+  localStorage.setItem(STORAGE_HALFDAY_HRS,JSON.stringify(hdHrs));
 }
 
 async function loadFromCloud(){
@@ -732,16 +784,30 @@ async function cloudUpsertActivities(){
 async function cloudUpsertAttendanceForDate(dateStr){
   if(!isCloudReady()) return;
   const d = dateStr || getToday();
-  const att = getAttendanceMap()[d] || {};
-  const ot  = getOTMap()[d]         || {};
-  const sun = getSundayMap()[d]      || {};
+  const att   = getAttendanceMap()[d]    || {};
+  const ot    = getOTMap()[d]            || {};
+  const sun   = getSundayMap()[d]        || {};
+  const hd    = getHalfDayMap()[d]       || {};
+  const hdHrs = getHalfDayHrsMap()[d]    || {};
   const payload = (workers||[]).map(w=>({
     log_date: d, worker_name: _jcUpper(w.name),
-    present: !!att[w.name], ot_allowed: !!ot[w.name], sunday_approved: !!sun[w.name]
+    present: !!att[w.name], ot_allowed: !!ot[w.name], sunday_approved: !!sun[w.name],
+    half_day: !!hd[w.name], half_day_hours: hd[w.name] ? (hdHrs[w.name] ?? 3.75) : null
   }));
   try{
     const res = await sb().from('jc_attendance').upsert(payload,{onConflict:'log_date,worker_name'});
-    if(res?.error) throw res.error;
+    if(res?.error){
+      // If half_day columns don't exist yet, retry without them (graceful fallback)
+      const msg = (res.error?.message||'').toLowerCase();
+      if(msg.includes('half_day') || msg.includes('column')){
+        const fallback = payload.map(({half_day, half_day_hours, ...rest})=>rest);
+        const res2 = await sb().from('jc_attendance').upsert(fallback,{onConflict:'log_date,worker_name'});
+        if(res2?.error) throw res2.error;
+        showToast('Attendance saved (half-day stored locally — add columns to Supabase to sync)', 'info');
+        return;
+      }
+      throw res.error;
+    }
   }catch(e){ _jcHandleCloudError(e,'cloudUpsertAttendanceForDate'); }
 }
 
@@ -751,12 +817,29 @@ function getOTMap(){ return JSON.parse(localStorage.getItem(STORAGE_OT)||"{}"); 
 function saveOTMap(m){ localStorage.setItem(STORAGE_OT,JSON.stringify(m)); }
 function getSundayMap(){ return JSON.parse(localStorage.getItem(STORAGE_SUNDAY)||"{}"); }
 function saveSundayMap(m){ localStorage.setItem(STORAGE_SUNDAY,JSON.stringify(m)); }
+function getHalfDayMap(){ return JSON.parse(localStorage.getItem(STORAGE_HALFDAY)||"{}"); }
+function saveHalfDayMap(m){ localStorage.setItem(STORAGE_HALFDAY,JSON.stringify(m)); }
+function getHalfDayHrsMap(){ return JSON.parse(localStorage.getItem(STORAGE_HALFDAY_HRS)||"{}"); }
+function saveHalfDayHrsMap(m){ localStorage.setItem(STORAGE_HALFDAY_HRS,JSON.stringify(m)); }
+
 function setAttendance(d,w,v){ const a=getAttendanceMap(); if(!a[d])a[d]={}; a[d][w]=v; saveAttendanceMap(a); }
 function setOT(d,w,v){ const o=getOTMap(); if(!o[d])o[d]={}; o[d][w]=v; saveOTMap(o); }
 function setSunday(d,w,v){ const s=getSundayMap(); if(!s[d])s[d]={}; s[d][w]=v; saveSundayMap(s); }
+function setHalfDay(d,w,v){ const h=getHalfDayMap(); if(!h[d])h[d]={}; h[d][w]=v; saveHalfDayMap(h); }
+function setHalfDayHrs(d,w,v){ const h=getHalfDayHrsMap(); if(!h[d])h[d]={}; h[d][w]=parseFloat(v)||3.75; saveHalfDayHrsMap(h); }
+
+// Returns the effective daily hour limit for a worker on a given date
+function getWorkerDayLimit(workerName, date){
+  const hd  = getHalfDayMap()[date]?.[workerName]  || false;
+  if(hd){
+    const hrs = getHalfDayHrsMap()[date]?.[workerName];
+    return (hrs != null) ? parseFloat(hrs) : 3.75;
+  }
+  return 7.5;
+}
 
 function getWorkerDailyHours(worker,date){ return jobEntries.filter(e=>e.workerName===worker&&e.date===date).reduce((s,e)=>s+(parseFloat(e.hours)||0),0); }
-function getRemainingHours(worker,date){ return Math.max(0,7.5-getWorkerDailyHours(worker,date)); }
+function getRemainingHours(worker,date){ return Math.max(0, getWorkerDayLimit(worker,date) - getWorkerDailyHours(worker,date)); }
 
 async function addEntry(wn,proj,mainAct,subAct,hrs,date,detail){
   if(!wn||!proj||!mainAct||!hrs||hrs<=0) return false;
@@ -862,18 +945,42 @@ function getUnlockedActivities(projectName){ return activities.filter(a=>{ if(a.
 function getProjectHoursSummary(){ const map={}; jobEntries.forEach(e=>{ const p=e.projectName||"Unknown"; if(!map[p])map[p]={total:0,activities:{}}; map[p].total+=(e.hours||0); const act=e.activity||"Unknown"; if(!map[p].activities[act])map[p].activities[act]={total:0,subs:{}}; map[p].activities[act].total+=(e.hours||0); const sub=e.subActivity||'(No Sub)'; if(!map[p].activities[act].subs[sub])map[p].activities[act].subs[sub]=0; map[p].activities[act].subs[sub]+=(e.hours||0); }); return map; }
 function escapeHtml(s){ if(!s)return''; return s.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
 
+// ── MOBILE SIDEBAR ──
+function openMobileSidebar(){
+  const sidebar = document.getElementById('adminSidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  const closeBtn = document.getElementById('sidebarCloseBtn');
+  if(sidebar){ sidebar.classList.add('open'); }
+  if(overlay){ overlay.classList.add('visible'); }
+  if(closeBtn){ closeBtn.style.display = 'block'; }
+}
+function closeMobileSidebar(){
+  const sidebar = document.getElementById('adminSidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  const closeBtn = document.getElementById('sidebarCloseBtn');
+  if(sidebar){ sidebar.classList.remove('open'); }
+  if(overlay){ overlay.classList.remove('visible'); }
+  if(closeBtn){ closeBtn.style.display = 'none'; }
+}
+
 // ── TOPBAR ──
 function setTopbar(title,sub,mode){
   document.getElementById('topbar').style.display='flex';
   document.getElementById('topbarTitle').textContent=title;
   document.getElementById('topbarSub').textContent=sub||'Indus Fire Safety — Smart Job Card System';
   const tr=document.getElementById('topbarRight');
+  const menuBtn = document.getElementById('mobileMenuBtn');
   if(mode==='admin'){
     tr.innerHTML=`<span class="topbar-badge badge-admin"><i class="fas fa-user-shield"></i>Admin Mode</span>`;
+    if(menuBtn) menuBtn.style.display='flex'; // show hamburger for admin on mobile
   } else if(mode==='worker' && loggedInWorker){
     tr.innerHTML=`<span class="topbar-badge badge-worker"><i class="fas fa-user-hard-hat"></i>${escapeHtml(loggedInWorker.name)}</span>
     <button class="btn btn-ghost btn-sm" onclick="doWorkerLogout()"><i class="fas fa-sign-out-alt"></i> Logout</button>`;
-  } else { tr.innerHTML=''; }
+    if(menuBtn) menuBtn.style.display='none';
+  } else {
+    tr.innerHTML='';
+    if(menuBtn) menuBtn.style.display='none';
+  }
 }
 function hideTopbar(){ document.getElementById('topbar').style.display='none'; }
 
@@ -882,6 +989,8 @@ function adminNav(el, section){
   el.classList.add('active');
   activeAdminSection = section;
   renderAdminSection(section);
+  // Close sidebar on mobile after navigation
+  if(window.innerWidth <= 768) closeMobileSidebar();
 }
 
 // ── WORKER LOGIN ──
@@ -1004,6 +1113,12 @@ function renderAdminSection(section){
   root.appendChild(wrap);
   attachSectionEvents(section);
 }
+
+// ── HALF DAY TOGGLE (called inline from HTML) ──
+window.toggleHalfDayRow = function(chk, wKey){
+  const wrap = document.querySelector(`.hd-hrs-wrap[data-worker="${wKey}"]`);
+  if(wrap) wrap.style.display = chk.checked ? '' : 'none';
+};
 
 // ── BUILD SECTIONS ──
 function buildOverview(){
@@ -1196,17 +1311,50 @@ let _attSelectedDate = getToday();
 function buildAttendance(selDate){
   _attSelectedDate = selDate;
   const att = getAttendanceMap(), ot = getOTMap(), sun = getSundayMap();
+  const hd    = getHalfDayMap(),    hdHrs = getHalfDayHrsMap();
   const rows = workers.map(w=>{
-    const isPres  = att[selDate]?.[w.name] || false;
-    const otAllow = ot[selDate]?.[w.name]  || false;
-    const sunApp  = sun[selDate]?.[w.name] || false;
+    const isPres   = att[selDate]?.[w.name]   || false;
+    const otAllow  = ot[selDate]?.[w.name]    || false;
+    const sunApp   = sun[selDate]?.[w.name]   || false;
+    const isHalf   = hd[selDate]?.[w.name]    || false;
+    const halfHrs  = hdHrs[selDate]?.[w.name] != null ? parseFloat(hdHrs[selDate]?.[w.name]) : 3.75;
     const hrs = getWorkerDailyHours(w.name, selDate);
+    const limit = getWorkerDayLimit(w.name, selDate);
+    const wKey = escapeHtml(w.name);
     return `<tr>
       <td>${escapeHtml(w.name)}</td>
-      <td style="text-align:center;"><label class="toggle-wrap" style="justify-content:center;"><input type="checkbox" class="att-chk" data-worker="${escapeHtml(w.name)}" ${isPres?'checked':''}></label></td>
-      <td style="text-align:center;"><label class="toggle-wrap" style="justify-content:center;"><input type="checkbox" class="ot-chk"  data-worker="${escapeHtml(w.name)}" ${otAllow?'checked':''}></label></td>
-      <td style="text-align:center;"><label class="toggle-wrap" style="justify-content:center;"><input type="checkbox" class="sun-chk" data-worker="${escapeHtml(w.name)}" ${sunApp?'checked':''}></label></td>
-      <td><span class="chip chip-fire">${hrs.toFixed(2)}h</span></td>
+      <td style="text-align:center;"><label class="toggle-wrap" style="justify-content:center;"><input type="checkbox" class="att-chk" data-worker="${wKey}" ${isPres?'checked':''}></label></td>
+      <td style="text-align:center;"><label class="toggle-wrap" style="justify-content:center;"><input type="checkbox" class="ot-chk"  data-worker="${wKey}" ${otAllow?'checked':''}></label></td>
+      <td style="text-align:center;"><label class="toggle-wrap" style="justify-content:center;"><input type="checkbox" class="sun-chk" data-worker="${wKey}" ${sunApp?'checked':''}></label></td>
+      <td style="text-align:center;">
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;">
+          <label class="toggle-wrap" style="justify-content:center;">
+            <input type="checkbox" class="hd-chk" data-worker="${wKey}" ${isHalf?'checked':''}
+              onchange="toggleHalfDayRow(this,'${wKey}')">
+          </label>
+          <div class="hd-hrs-wrap" data-worker="${wKey}" style="${isHalf?'':'display:none;'}">
+            <div style="display:flex;align-items:center;gap:4px;">
+              <button type="button" class="hd-dec" data-worker="${wKey}"
+                style="width:22px;height:22px;border-radius:6px;background:var(--bg-hover);border:1px solid var(--border);color:var(--text-2);cursor:pointer;font-size:0.75rem;display:flex;align-items:center;justify-content:center;">
+                <i class="fas fa-minus" style="font-size:0.55rem;"></i>
+              </button>
+              <span class="hd-hrs-val" data-worker="${wKey}"
+                style="min-width:36px;text-align:center;font-weight:700;font-size:0.82rem;font-family:'Space Grotesk',sans-serif;color:var(--gold);">
+                ${halfHrs.toFixed(1)}h
+              </span>
+              <button type="button" class="hd-inc" data-worker="${wKey}"
+                style="width:22px;height:22px;border-radius:6px;background:var(--bg-hover);border:1px solid var(--border);color:var(--text-2);cursor:pointer;font-size:0.75rem;display:flex;align-items:center;justify-content:center;">
+                <i class="fas fa-plus" style="font-size:0.55rem;"></i>
+              </button>
+              <input type="hidden" class="hd-hrs-input" data-worker="${wKey}" value="${halfHrs}">
+            </div>
+          </div>
+        </div>
+      </td>
+      <td>
+        <span class="chip chip-fire">${hrs.toFixed(2)}h</span>
+        ${isHalf?`<span class="chip chip-gold" style="font-size:0.6rem;margin-left:4px;">/ ${halfHrs.toFixed(1)}h</span>`:''}
+      </td>
     </tr>`;
   }).join('');
   return `
@@ -1222,9 +1370,13 @@ function buildAttendance(selDate){
           <div style="flex:1;"></div>
           <button id="saveAttendBtn" class="btn btn-fire btn-sm"><i class="fas fa-save"></i>Save Attendance</button>
         </div>
+        <div style="font-size:0.72rem;color:var(--text-2);background:var(--gold-soft);border:1px solid rgba(245,166,35,0.2);border-radius:10px;padding:10px 14px;margin-bottom:16px;">
+          <i class="fas fa-circle-half-stroke" style="color:var(--gold);margin-right:6px;"></i>
+          <b>Half Day:</b> Toggle the switch to mark half day. Use <b>+ / −</b> to set custom hours (default 3.75h). This becomes the worker's daily hour limit for that date.
+        </div>
         <div class="tbl-scroll">
           <table class="pro-table">
-            <thead><tr><th>Worker</th><th>Present</th><th>Overtime</th><th>Sunday</th><th>Hours</th></tr></thead>
+            <thead><tr><th>Worker</th><th>Present</th><th>Overtime</th><th>Sunday</th><th>Half Day &amp; Hours</th><th>Logged</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>
@@ -1642,10 +1794,35 @@ function attachSectionEvents(section){
         attachSectionEvents('attendance');
       }
     });
+
+    // Wire up half-day +/- steppers
+    document.querySelectorAll('.hd-dec, .hd-inc').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const wKey = btn.dataset.worker;
+        const hidden = document.querySelector(`.hd-hrs-input[data-worker="${wKey}"]`);
+        const label  = document.querySelector(`.hd-hrs-val[data-worker="${wKey}"]`);
+        if(!hidden || !label) return;
+        let val = parseFloat(hidden.value) || 3.75;
+        if(btn.classList.contains('hd-dec')) val = Math.max(0.25, parseFloat((val - 0.25).toFixed(2)));
+        else                                  val = Math.min(7.5,  parseFloat((val + 0.25).toFixed(2)));
+        hidden.value   = val;
+        label.textContent = val.toFixed(1) + 'h';
+      });
+    });
+
     document.getElementById('saveAttendBtn')?.addEventListener('click', async ()=>{
       document.querySelectorAll('.att-chk').forEach(ch=>setAttendance(_attSelectedDate,ch.dataset.worker,ch.checked));
       document.querySelectorAll('.ot-chk').forEach(ch=>setOT(_attSelectedDate,ch.dataset.worker,ch.checked));
       document.querySelectorAll('.sun-chk').forEach(ch=>setSunday(_attSelectedDate,ch.dataset.worker,ch.checked));
+      // Save half day toggle + custom hours
+      document.querySelectorAll('.hd-chk').forEach(ch=>{
+        const wKey = ch.dataset.worker;
+        setHalfDay(_attSelectedDate, wKey, ch.checked);
+        if(ch.checked){
+          const hrs = parseFloat(document.querySelector(`.hd-hrs-input[data-worker="${wKey}"]`)?.value) || 3.75;
+          setHalfDayHrs(_attSelectedDate, wKey, hrs);
+        }
+      });
       await cloudUpsertAttendanceForDate(_attSelectedDate);
       showToast('Attendance saved');
     });
@@ -2139,7 +2316,9 @@ function renderWorkerDashboard(){
   const today  = getToday();
   const booked    = getWorkerDailyHours(worker.name, today);
   const remaining = getRemainingHours(worker.name, today);
-  const pct = Math.min(100,(booked/7.5)*100);
+  const dayLimit  = getWorkerDayLimit(worker.name, today);
+  const isHalfDay = getHalfDayMap()[today]?.[worker.name] || false;
+  const pct = Math.min(100,(booked/dayLimit)*100);
   const activeProjectsList = getActiveProjects().map(p=>p.name);
   const attMap    = getAttendanceMap()[today] || {};
   const isPresent = attMap[worker.name] === true;
@@ -2162,7 +2341,7 @@ if (_workerDraftKey !== _draftKey) {
 
 if (!_workerDraftRows || _workerDraftRows.length === 0) {
   // No saved draft exists → create a default first row
-  _workerDraftRows = [{ project: '', mainAct: '', subActs: [], hours: Math.min(7.5, remaining), detail: '' }];
+  _workerDraftRows = [{ project: '', mainAct: '', subActs: [], hours: Math.min(dayLimit, remaining), detail: '' }];
   _saveDraftToStorage();
 }
 
@@ -2310,7 +2489,7 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
     if(remEl)   remEl.textContent   = (avail-total).toFixed(1);
     if(btn)     btn.disabled = (!allValid || total===0 || total>avail || !isPresent);
     const bar = document.getElementById('hoursProgressBar');
-    if(bar) bar.style.width = Math.min(100,((booked+total)/7.5)*100)+'%';
+    if(bar) bar.style.width = Math.min(100,((booked+total)/dayLimit)*100)+'%';
   };
 
   function createHourStepper(initial, onChange){
@@ -2373,7 +2552,7 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
             <div style="font-size:0.65rem;color:var(--text-3);font-weight:700;letter-spacing:0.08em;margin-bottom:4px;">DAILY HOURS FILL — ${today}</div>
             <div style="display:flex;align-items:baseline;gap:6px;">
               <span style="font-family:'Space Grotesk',sans-serif;font-size:1.6rem;font-weight:700;color:${pctColor};">${booked.toFixed(1)}</span>
-              <span style="font-size:0.8rem;color:var(--text-3);">/ 7.5h</span>
+              <span style="font-size:0.8rem;color:var(--text-3);">/ ${dayLimit.toFixed(1)}h${isHalfDay?' <span class=\'chip chip-gold\' style=\'font-size:0.6rem;padding:2px 8px;vertical-align:middle;\'><i class=\'fas fa-circle-half-stroke\'></i> Half Day</span>':''}</span>
               <span style="font-size:0.72rem;color:var(--text-2);margin-left:6px;">(${remaining.toFixed(1)}h left)</span>
             </div>
           </div>
@@ -2623,7 +2802,7 @@ function _rtWorkerSoftRefresh(){
 
   // Update hours progress bar if it exists on screen
   const bar = document.getElementById('hoursProgressBar');
-  if (bar) bar.style.width = Math.min(100, (booked / 7.5) * 100) + '%';
+  if (bar) bar.style.width = Math.min(100, (booked / getWorkerDayLimit(worker.name, today)) * 100) + '%';
 
   // Update Today's Approved panel
   const todayEntries = jobEntries.filter(e => e.workerName === worker.name && e.date === today);
@@ -2733,24 +2912,44 @@ function setupRealtimeSubscriptions(){
 
 // ── INIT ──
 (async ()=>{
+  // 1. Load local data and show login IMMEDIATELY — never block on network
   loadData();
-  const initOk = await initJobCardSupabase();
-  let synced = false;
-  if(initOk) synced = await loadFromCloud();
   renderWorkerLogin();
-  if(synced) showToast('Synced from server','success');
 
-  // Start realtime subscriptions for instant live updates
-  if(initOk) setupRealtimeSubscriptions();
+  // 2. Try Supabase in background with a 5-second timeout
+  const supabaseReady = await Promise.race([
+    initJobCardSupabase(),
+    new Promise(resolve => setTimeout(() => resolve(false), 5000))
+  ]);
 
-  // Fallback: re-subscribe + refresh when tab becomes visible again
+  if(!supabaseReady){
+    console.warn('[JC] Supabase unavailable — running in local-only mode');
+    return; // App already shown, just skip cloud sync
+  }
+
+  // 3. Sync from cloud silently in background
+  let synced = false;
+  try {
+    synced = await loadFromCloud();
+  } catch(e) {
+    console.warn('[JC] Cloud sync failed:', e);
+  }
+
+  if(synced){
+    showToast('Synced from server', 'success');
+    // Refresh login page worker list with cloud data
+    if(currentMode === 'worker' && !loggedInWorker) renderWorkerLogin();
+  }
+
+  // 4. Start realtime subscriptions
+  setupRealtimeSubscriptions();
+
+  // 5. Fallback: re-subscribe + refresh when tab becomes visible again
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState==='visible' && isCloudReady()){
-      // Re-subscribe if channel dropped
       if(!_rtChannel) setupRealtimeSubscriptions();
       loadFromCloud().then(()=>{
         if(currentMode==='worker' && loggedInWorker){
-          // ✅ DIRTY-STATE CHECK: if worker is mid-entry, only soft-refresh panels
           if(_workerTab === 'log' && _workerDraftRows && _workerHasDirtyRows()){
             _rtWorkerSoftRefresh();
           } else {
