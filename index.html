@@ -5,8 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Indus Fire Safety | Smart Job Card + Admin</title>
   <meta name="theme-color" content="#0B0D14">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="icons/icon-152x152.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-192x192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Indus Fire">
+  <meta name="application-name" content="Indus Fire Safety">
+  <meta name="msapplication-TileImage" content="icons/icon-144x144.png">
+  <meta name="msapplication-TileColor" content="#0B0D14">
   <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
@@ -686,18 +696,30 @@ async function loadFromCloud(){
     if(Array.isArray(attRes.data)) _jcPersistAttendanceMapsFromRows(attRes.data);
 
     if(Array.isArray(pendRes?.data)){
-      pendingEntries = pendRes.data.map(r=>({
-        id: r.id,
-        workerName: r.worker_name,
-        projectName: r.project_name,
-        activity: r.activity_name,
-        subActivity: r.sub_activity || '',
-        hours: Number(r.hours || 0),
-        date: r.entry_date,
-        detailReason: r.remark || '',
-        status: r.status || 'pending',
-        submittedAt: r.submitted_at || ''
-      }));
+      const uniquePendingMap = new Map();
+      pendRes.data.forEach(r => {
+        const item = {
+          id: r.id,
+          workerName: r.worker_name,
+          projectName: r.project_name,
+          activity: r.activity_name,
+          subActivity: r.sub_activity || '',
+          hours: Number(r.hours || 0),
+          date: r.entry_date,
+          detailReason: r.remark || '',
+          status: r.status || 'pending',
+          submittedAt: r.submitted_at || ''
+        };
+        if (item.status === 'pending') {
+          const key = `${(item.workerName||'').trim().toLowerCase()}|${(item.projectName||'').trim().toLowerCase()}|${(item.activity||'').trim().toLowerCase()}|${(item.subActivity||'').trim().toLowerCase()}|${item.date}|${item.hours.toFixed(2)}`;
+          if (!uniquePendingMap.has(key)) {
+            uniquePendingMap.set(key, item);
+          }
+        } else {
+          uniquePendingMap.set(item.id, item);
+        }
+      });
+      pendingEntries = Array.from(uniquePendingMap.values());
       savePending();
     }
     return true;
@@ -742,6 +764,16 @@ function loadData(){
   const spe = localStorage.getItem(STORAGE_PENDING);
   pendingEntries = spe ? JSON.parse(spe) : [];
   pendingEntries = pendingEntries.filter(e=>e&&e.id);
+  const localUniqueMap = new Map();
+  pendingEntries.forEach(e => {
+    if (e.status === 'pending') {
+      const key = `${(e.workerName||'').trim().toLowerCase()}|${(e.projectName||'').trim().toLowerCase()}|${(e.activity||'').trim().toLowerCase()}|${(e.subActivity||'').trim().toLowerCase()}|${e.date}|${(Number(e.hours)||0).toFixed(2)}`;
+      if (!localUniqueMap.has(key)) localUniqueMap.set(key, e);
+    } else {
+      localUniqueMap.set(e.id, e);
+    }
+  });
+  pendingEntries = Array.from(localUniqueMap.values());
 
   if(!localStorage.getItem(STORAGE_ATTENDANCE)) localStorage.setItem(STORAGE_ATTENDANCE,"{}");
   if(!localStorage.getItem(STORAGE_OT))         localStorage.setItem(STORAGE_OT,"{}");
@@ -882,18 +914,60 @@ async function deleteEntry(id){
 
 async function submitPendingEntry(wn,proj,mainAct,subAct,hrs,date,detail){
   if(!wn||!proj||!mainAct||!hrs||hrs<=0) return false;
+  const normWn   = wn.trim();
+  const normProj = proj.trim();
+  const normAct  = mainAct.trim();
+  const normSub  = (subAct||"").trim();
+  const normHrs  = parseFloat(hrs);
+
+  // ── AUTOMATIC DEDUPLICATION GUARD ──
+  const isDuplicateLocal = pendingEntries.some(e =>
+    e.status === 'pending' &&
+    e.workerName?.trim().toLowerCase() === normWn.toLowerCase() &&
+    e.projectName?.trim().toLowerCase() === normProj.toLowerCase() &&
+    e.activity?.trim().toLowerCase() === normAct.toLowerCase() &&
+    (e.subActivity||"").trim().toLowerCase() === normSub.toLowerCase() &&
+    e.date === date &&
+    Math.abs((parseFloat(e.hours)||0) - normHrs) < 0.01
+  );
+
+  if (isDuplicateLocal) {
+    console.warn('[JC] Duplicate pending entry blocked locally:', {normWn, normProj, normAct, normHrs, date});
+    return true;
+  }
+
   const localId = 'pnd_'+Date.now()+'_'+Math.floor(Math.random()*100000);
-  const entry = {id:localId,workerName:wn.trim(),projectName:proj.trim(),activity:mainAct,subActivity:subAct||"",
-    hours:parseFloat(hrs),date,detailReason:detail||"",status:'pending',submittedAt:new Date().toISOString()};
+  const entry = {id:localId,workerName:normWn,projectName:normProj,activity:normAct,subActivity:normSub,
+    hours:normHrs,date,detailReason:detail||"",status:'pending',submittedAt:new Date().toISOString()};
   pendingEntries.push(entry);
   savePending();
+
   if(isCloudReady()){
     try{
+      // Check cloud DB directly before insertion to prevent cross-device or double-request duplicates
+      const { data: existingCloud } = await sb().from('jc_pending_entries')
+        .select('id')
+        .eq('worker_name', _jcUpper(normWn))
+        .eq('project_name', _jcUpper(normProj))
+        .eq('activity_name', _jcUpper(normAct))
+        .eq('sub_activity', _jcUpper(normSub))
+        .eq('entry_date', date)
+        .eq('hours', normHrs)
+        .eq('status', 'pending')
+        .limit(1);
+
+      if (existingCloud && existingCloud.length > 0) {
+        console.warn('[JC] Duplicate pending entry found in Cloud:', existingCloud[0].id);
+        entry.id = existingCloud[0].id;
+        savePending();
+        return true;
+      }
+
       const payload = {
         entry_date: entry.date,
         worker_name: _jcUpper(entry.workerName),
-project_name: _jcUpper(entry.projectName),
-activity_name: _jcUpper(entry.activity),
+        project_name: _jcUpper(entry.projectName),
+        activity_name: _jcUpper(entry.activity),
         sub_activity: entry.subActivity || '',
         hours: Number(entry.hours || 0),
         remark: entry.detailReason || '',
@@ -1540,6 +1614,21 @@ function buildAdminAddEntry(){
 }
 
 function buildApprovalQueue(){
+  // Automatic deduplication of pending items
+  const uniqueMap = new Map();
+  pendingEntries.forEach(e => {
+    if (e.status === 'pending') {
+      const key = `${(e.workerName||'').trim().toLowerCase()}|${(e.projectName||'').trim().toLowerCase()}|${(e.activity||'').trim().toLowerCase()}|${(e.subActivity||'').trim().toLowerCase()}|${e.date}|${(Number(e.hours)||0).toFixed(2)}`;
+      if (!uniqueMap.has(key)) uniqueMap.set(key, e);
+    } else {
+      uniqueMap.set(e.id, e);
+    }
+  });
+  if (uniqueMap.size < pendingEntries.length) {
+    pendingEntries = Array.from(uniqueMap.values());
+    savePending();
+  }
+
   const pending = pendingEntries.filter(e=>e.status==='pending');
   const filterWorker = window._aqFilterWorker || '';
   const filterDate   = window._aqFilterDate   || '';
@@ -3200,24 +3289,44 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
 
     document.getElementById('submitMultiBtn')?.addEventListener('click', async ()=>{
       if(!isPresent){ showToast('You are marked ABSENT. Cannot log hours.','error'); return; }
-      const total = rows.reduce((s,r)=>s+(r.hours||0),0);
-      const avail = getRemainingHours(worker.name, today);
-      if(total > avail){ showToast('Exceeds remaining hours','error'); return; }
-      let count = 0;
-      for(let r of rows){
-        if(!r.project||!r.mainAct||r.hours<=0){ showToast('Please fill all fields','error'); return; }
-        await submitPendingEntry(worker.name,r.project,r.mainAct,r.subActs.join(", "),r.hours,today,r.detail||'');
-        count++;
+      const btn = document.getElementById('submitMultiBtn');
+      if(btn){
+        if(btn.disabled) return;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
       }
-      showToast(`${count} entries submitted!`);
-      // ── Confetti if worker reached full day limit ──
-      const newTotal = getWorkerDailyHours(worker.name, today) + rows.reduce((s,r)=>s+(r.hours||0),0);
-      if(newTotal >= dayLimit) setTimeout(()=>launchConfetti(), 400);
-      // ✅ Clear draft (memory + localStorage) after successful submit
-      _workerDraftRows = null;
-      _clearDraftStorage();
-      _workerTab = 'log';
-      renderWorkerDashboard();
+      try {
+        const total = rows.reduce((s,r)=>s+(r.hours||0),0);
+        const avail = getRemainingHours(worker.name, today);
+        if(total > avail){
+          showToast('Exceeds remaining hours','error');
+          if(btn){ btn.disabled=false; btn.innerHTML='<i class="fas fa-paper-plane"></i> Submit for Approval'; }
+          return;
+        }
+        let count = 0;
+        for(let r of rows){
+          if(!r.project||!r.mainAct||r.hours<=0){
+            showToast('Please fill all fields','error');
+            if(btn){ btn.disabled=false; btn.innerHTML='<i class="fas fa-paper-plane"></i> Submit for Approval'; }
+            return;
+          }
+          await submitPendingEntry(worker.name,r.project,r.mainAct,r.subActs.join(", "),r.hours,today,r.detail||'');
+          count++;
+        }
+        showToast(`${count} entries submitted!`);
+        // ── Confetti if worker reached full day limit ──
+        const newTotal = getWorkerDailyHours(worker.name, today) + rows.reduce((s,r)=>s+(r.hours||0),0);
+        if(newTotal >= dayLimit) setTimeout(()=>launchConfetti(), 400);
+        // ✅ Clear draft (memory + localStorage) after successful submit
+        _workerDraftRows = null;
+        _clearDraftStorage();
+        _workerTab = 'log';
+        renderWorkerDashboard();
+      } catch(err) {
+        console.error('[JC] Submission error:', err);
+        showToast('Submission error. Please retry.', 'error');
+        if(btn){ btn.disabled=false; btn.innerHTML='<i class="fas fa-paper-plane"></i> Submit for Approval'; }
+      }
     });
   }
 
@@ -3465,6 +3574,182 @@ function setupRealtimeSubscriptions(){
       });
     }
   });
+})();
+</script>
+<script>
+// ════════════════════════════════════════════════════════════════════════════
+// ── PWA MANAGER (Service Worker, Install Prompt, Auto-Update & Online Sync) ──
+// ════════════════════════════════════════════════════════════════════════════
+(function initPWAManager(){
+  let deferredInstallPrompt = null;
+  let newWorker = null;
+
+  // 1. Register Service Worker
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('./service-worker.js')
+        .then(function(registration) {
+          console.log('[PWA] Service Worker registered with scope:', registration.scope);
+
+          // Detect new version updates
+          registration.addEventListener('updatefound', function() {
+            newWorker = registration.installing;
+            if (!newWorker) return;
+            newWorker.addEventListener('statechange', function() {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                showPWAUpdateBanner();
+              }
+            });
+          });
+        })
+        .catch(function(err) {
+          console.warn('[PWA] Service Worker registration failed:', err);
+        });
+    });
+
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function() {
+      if (!refreshing) {
+        refreshing = true;
+        window.location.reload();
+      }
+    });
+  }
+
+  // 2. Auto-Update Banner UI
+  function showPWAUpdateBanner() {
+    const old = document.getElementById('pwaUpdateBanner');
+    if (old) old.remove();
+
+    const banner = document.createElement('div');
+    banner.id = 'pwaUpdateBanner';
+    banner.style.cssText = `
+      position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 999999;
+      background: var(--bg-elevated, #161928); border: 1px solid var(--border-active, rgba(255,69,0,0.5));
+      border-radius: 12px; padding: 12px 18px; font-size: 0.82rem; color: var(--text-1, #FFFFFF);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6); display: flex; align-items: center; gap: 12px;
+      animation: fadeUp 0.3s ease both; max-width: 90%; width: 380px;
+    `;
+    banner.innerHTML = `
+      <i class="fas fa-arrows-rotate fa-spin" style="color:var(--fire, #FF4500);font-size:1.1rem;"></i>
+      <div style="flex:1;">
+        <div style="font-weight:700;">New Version Available</div>
+        <div style="font-size:0.7rem;color:var(--text-2, #8B92B8);">Update to get the latest features.</div>
+      </div>
+      <button id="pwaUpdateNowBtn" class="btn btn-fire btn-xs" style="padding:6px 12px;font-size:0.72rem;">Update Now</button>
+    `;
+    document.body.appendChild(banner);
+
+    document.getElementById('pwaUpdateNowBtn')?.addEventListener('click', function() {
+      if (newWorker) newWorker.postMessage({ type: 'SKIP_WAITING' });
+    });
+  }
+
+  // 3. Install App Prompt Handler (Desktop Windows/Mac & Mobile Android/Chrome)
+  window.addEventListener('beforeinstallprompt', function(e) {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    console.log('[PWA] beforeinstallprompt event captured');
+
+    renderInstallAppPrompt();
+  });
+
+  function renderInstallAppPrompt() {
+    if (!deferredInstallPrompt) return;
+    if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
+      return; // Already running as installed standalone app
+    }
+
+    // Floating Install Banner
+    const existing = document.getElementById('pwaInstallPromptBanner');
+    if (existing) return;
+
+    const installBox = document.createElement('div');
+    installBox.id = 'pwaInstallPromptBanner';
+    installBox.style.cssText = `
+      position: fixed; bottom: 20px; right: 20px; z-index: 99999;
+      background: var(--bg-card, #111320); border: 1px solid var(--border-active, rgba(255,69,0,0.4));
+      border-radius: 16px; padding: 14px 18px; color: var(--text-1, #F1F3FF);
+      box-shadow: 0 12px 36px rgba(0,0,0,0.65); display: flex; align-items: center; gap: 14px;
+      max-width: 360px; width: calc(100% - 40px); animation: fadeUp 0.35s ease both;
+    `;
+    installBox.innerHTML = `
+      <div style="width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,#FF4500,#FF8C42);display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 0 14px rgba(255,69,0,0.4);">
+        <i class="fas fa-fire-extinguisher" style="color:white;font-size:1.2rem;"></i>
+      </div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:700;font-size:0.85rem;line-height:1.2;">Install Indus App</div>
+        <div style="font-size:0.68rem;color:var(--text-3, #555A7E);margin-top:2px;">Fast access on Desktop & Mobile</div>
+      </div>
+      <button id="pwaInstallAppBtn" class="btn btn-fire btn-sm" style="padding:7px 14px;"><i class="fas fa-download"></i>Install</button>
+      <button id="pwaDismissInstallBtn" title="Dismiss" style="background:none;border:none;color:var(--text-3);cursor:pointer;font-size:0.9rem;padding:2px;"><i class="fas fa-times"></i></button>
+    `;
+    document.body.appendChild(installBox);
+
+    document.getElementById('pwaInstallAppBtn')?.addEventListener('click', async function() {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      console.log('[PWA] User response to install prompt:', outcome);
+      deferredInstallPrompt = null;
+      installBox.remove();
+    });
+
+    document.getElementById('pwaDismissInstallBtn')?.addEventListener('click', function() {
+      installBox.remove();
+    });
+  }
+
+  window.addEventListener('appinstalled', function() {
+    console.log('[PWA] App successfully installed!');
+    deferredInstallPrompt = null;
+    document.getElementById('pwaInstallPromptBanner')?.remove();
+    if (typeof showToast === 'function') showToast('Indus App installed successfully!', 'success');
+  });
+
+  // 4. Offline / Online Connection Detection & Automatic Cloud Sync
+  function updateNetworkStatus() {
+    const isOnline = navigator.onLine;
+    let notif = document.getElementById('pwaNetworkStatus');
+
+    if (!isOnline) {
+      if (!notif) {
+        notif = document.createElement('div');
+        notif.id = 'pwaNetworkStatus';
+        notif.style.cssText = `
+          position: fixed; top: 0; left: 0; right: 0; z-index: 999999;
+          background: #DC2626; color: #FFFFFF; font-size: 0.75rem; font-weight: 600;
+          padding: 6px 12px; text-align: center; display: flex; align-items: center; justify-content: center; gap: 8px;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        `;
+        notif.innerHTML = `<i class="fas fa-wifi-slash"></i> No Internet Connection — Running Offline Mode`;
+        document.body.appendChild(notif);
+      }
+    } else {
+      if (notif) {
+        notif.style.background = '#22C55E';
+        notif.innerHTML = `<i class="fas fa-wifi"></i> Connection Restored — Syncing Data...`;
+        setTimeout(() => {
+          notif.remove();
+        }, 2000);
+      }
+      // Auto Sync when online
+      if (typeof loadFromCloud === 'function' && typeof isCloudReady === 'function' && isCloudReady()) {
+        loadFromCloud().then(() => {
+          if (typeof showToast === 'function') showToast('Online sync completed!', 'success');
+          if (typeof currentMode !== 'undefined' && currentMode === 'worker' && typeof loggedInWorker !== 'undefined' && loggedInWorker) {
+            if (typeof renderWorkerDashboard === 'function') renderWorkerDashboard();
+          } else if (typeof currentMode !== 'undefined' && currentMode === 'admin' && typeof adminLoggedIn !== 'undefined' && adminLoggedIn) {
+            if (typeof renderAdminSection === 'function') renderAdminSection(activeAdminSection);
+          }
+        });
+      }
+    }
+  }
+
+  window.addEventListener('online', updateNetworkStatus);
+  window.addEventListener('offline', updateNetworkStatus);
+  if (!navigator.onLine) updateNetworkStatus();
 })();
 </script>
 </body>
