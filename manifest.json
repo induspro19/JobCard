@@ -1,14 +1,14 @@
 {
-  "name": "Indus Fire Safety — Smart Job Card System",
-  "short_name": "Indus JobCard",
-  "description": "Enterprise Smart Job Card, Attendance & Admin Management System for Indus Fire Safety",
+  "name": "Indus Fire Safety Pvt Ltd — Project Hour Tracking System",
+  "short_name": "Indus Fire",
+  "description": "Enterprise Project Hour Tracking, Attendance & Admin Management System for Indus Fire Safety Pvt Ltd",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
-  "orientation": "portrait-primary",
-  "background_color": "#0B0D14",
-  "theme_color": "#0B0D14",
+  "orientation": "any",
+  "background_color": "#07090E",
+  "theme_color": "#07090E",
   "categories": ["business", "productivity", "utilities"],
   "icons": [
     {
@@ -42,8 +42,20 @@
       "purpose": "any"
     },
     {
+      "src": "icons/icon-180x180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
       "src": "icons/icon-192x192.png",
       "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-256x256.png",
+      "sizes": "256x256",
       "type": "image/png",
       "purpose": "any"
     },
@@ -76,7 +88,7 @@
     {
       "name": "Worker Login",
       "short_name": "Worker",
-      "description": "Log daily work hours",
+      "description": "Log daily project hours",
       "url": "./index.html?mode=worker",
       "icons": [{ "src": "icons/icon-192x192.png", "sizes": "192x192" }]
     },

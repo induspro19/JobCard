@@ -3,45 +3,216 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Indus Fire Safety | Smart Job Card + Admin</title>
-  <meta name="theme-color" content="#0B0D14">
+  <title>Indus Fire Safety Pvt Ltd — Project Hour Tracking System</title>
+  <meta name="theme-color" content="#07090E">
   <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+  <link rel="icon" type="image/png" href="icon.png">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
-  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
-  <link rel="apple-touch-icon" href="icons/icon-192x192.png">
-  <link rel="apple-touch-icon" sizes="152x152" href="icons/icon-152x152.png">
-  <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-192x192.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Indus Fire">
-  <meta name="application-name" content="Indus Fire Safety">
-  <meta name="msapplication-TileImage" content="icons/icon-144x144.png">
-  <meta name="msapplication-TileColor" content="#0B0D14">
+  <meta name="apple-mobile-web-app-title" content="Indus Fire Safety">
+  <meta name="application-name" content="Indus Fire Safety Pvt Ltd">
   <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+
+// ── BACKGROUND FIRE PARTICLES CANVAS ──
+(function initLoginParticles(){
+  const canvas = document.getElementById('loginBgCanvas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  let width = canvas.width = window.innerWidth;
+  let height = canvas.height = window.innerHeight;
+
+  window.addEventListener('resize', ()=>{
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  });
+
+  const particles = [];
+  const particleCount = Math.min(35, Math.floor(width / 35));
+
+  for(let i = 0; i < particleCount; i++){
+    particles.push({
+      x: Math.random() * width,
+      y: Math.random() * height,
+      radius: Math.random() * 2.5 + 1,
+      color: Math.random() > 0.4 ? 'rgba(255, 69, 0, ' : 'rgba(245, 166, 35, ',
+      alpha: Math.random() * 0.4 + 0.1,
+      speedY: -(Math.random() * 0.4 + 0.1),
+      speedX: (Math.random() - 0.5) * 0.3,
+      pulse: Math.random() * 0.02 + 0.005
+    });
+  }
+
+  let lastTime = 0;
+  function animate(time){
+    if(time - lastTime < 33){
+      requestAnimationFrame(animate);
+      return;
+    }
+    lastTime = time;
+
+    ctx.clearRect(0, 0, width, height);
+
+    for(let i = 0; i < particles.length; i++){
+      const p = particles[i];
+      p.y += p.speedY;
+      p.x += p.speedX;
+      p.alpha += Math.sin(time * p.pulse) * 0.01;
+
+      if(p.y < -10){ p.y = height + 10; p.x = Math.random() * width; }
+      if(p.x < -10) p.x = width + 10;
+      if(p.x > width + 10) p.x = -10;
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+      ctx.fillStyle = p.color + Math.max(0.05, Math.min(0.6, p.alpha)) + ')';
+      ctx.shadowBlur = p.radius * 4;
+      ctx.shadowColor = '#FF4500';
+      ctx.fill();
+    }
+    requestAnimationFrame(animate);
+  }
+  requestAnimationFrame(animate);
+})();
+
+function startAdminHeroClock(){
+  function updateClock(){
+    const now = new Date();
+    const clockEl = document.getElementById('heroClock');
+    const dateEl  = document.getElementById('heroDate');
+    if(clockEl){
+      clockEl.textContent = now.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+    if(dateEl){
+      dateEl.textContent = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  }
+  updateClock();
+  if(!window._heroClockInterval){
+    window._heroClockInterval = setInterval(updateClock, 1000);
+  }
+}
+
+
+function togglePassVisibility(inputId, iconEl){
+  const inp = document.getElementById(inputId);
+  if(!inp) return;
+  if(inp.type==='password'){
+    inp.type='text'; iconEl.className='fas fa-eye-slash inp-eye';
+  } else {
+    inp.type='password'; iconEl.className='fas fa-eye inp-eye';
+  }
+}
+
+function startLoginStatusClock(){
+  function update(){
+    const dEl = document.getElementById('statusDateVal');
+    const tEl = document.getElementById('statusTimeVal');
+    const now = new Date();
+    if(dEl) dEl.textContent = now.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    if(tEl) tEl.textContent = now.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+  update();
+  if(!window._loginStatusClockInterval){
+    window._loginStatusClockInterval = setInterval(update, 1000);
+  }
+}
+
+</script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
       --fire: #FF4500;
-      --fire-soft: rgba(255,69,0,0.12);
-      --fire-glow: rgba(255,69,0,0.25);
-      --bg-base: #0B0D14;
-      --bg-card: #111320;
-      --bg-elevated: #161928;
-      --bg-hover: #1C1F35;
-      --border: rgba(255,255,255,0.07);
-      --border-active: rgba(255,69,0,0.4);
+      --fire-bright: #FF6B00;
+      --fire-soft: rgba(255, 69, 0, 0.14);
+      --fire-glow: rgba(255, 69, 0, 0.35);
+      --bg-base: #07090E;
+      --bg-card: #0F121C;
+      --bg-elevated: #151926;
+      --bg-hover: #1E2336;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-active: rgba(255, 69, 0, 0.5);
       --gold: #F5A623;
-      --gold-soft: rgba(245,166,35,0.12);
+      --gold-soft: rgba(245, 166, 35, 0.14);
       --green: #22C55E;
-      --green-soft: rgba(34,197,94,0.12);
+      --green-soft: rgba(34, 197, 94, 0.14);
       --blue: #3B82F6;
-      --blue-soft: rgba(59,130,246,0.12);
+      --blue-soft: rgba(59, 130, 246, 0.14);
       --text-1: #F1F3FF;
-      --text-2: #8B92B8;
-      --text-3: #555A7E;
-      --sidebar-w: 240px;
+      --text-2: #94A0C4;
+      --text-3: #5C658A;
+      --sidebar-w: 250px;
+    }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #07090E; }
+    ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #FF4500 0%, #FF7043 100%); border-radius: 99px; }
+    ::-webkit-scrollbar-thumb:hover { background: #FF4500; }
+
+    .main-content {
+      margin-left: var(--sidebar-w);
+      min-height: 100vh;
+      display: flex; flex-direction: column;
+      max-width: 1800px;
+      margin-right: auto;
+      transition: margin-left 0.3s ease;
+    }
+    .main-content.no-sidebar {
+      margin-left: 0 !important;
+      margin-right: 0 !important;
+      max-width: 100% !important;
+      width: 100% !important;
+    }
+
+    .login-wrap {
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px; width: 100%; position: relative; z-index: 10;
+    }
+    .login-card {
+      background: rgba(15, 18, 28, 0.82);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), 0 0 35px rgba(255, 69, 0, 0.18);
+      border-radius: 24px;
+      padding: 38px 32px;
+      width: 100%; max-width: 440px;
+      text-align: center;
+      animation: loginEntrance 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+      transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+    }
+    .login-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 28px 60px rgba(0, 0, 0, 0.75), 0 0 45px rgba(255, 69, 0, 0.32);
+      border-color: rgba(255, 69, 0, 0.45);
+    }
+    @keyframes loginEntrance {
+      from { opacity: 0; transform: translateY(20px) scale(0.96); }
+      to { opacity: 1; transform: translateY(0) scale(1.0); }
+    }
+    @keyframes watermarkFloat {
+      0% { transform: translate(-50%, -50%) scale(1) rotate(0deg); opacity: 0.08; }
+      50% { transform: translate(-50%, -53%) scale(1.03) rotate(1deg); opacity: 0.12; filter: drop-shadow(0 0 40px rgba(255,69,0,0.3)); }
+      100% { transform: translate(-50%, -47%) scale(0.98) rotate(-1deg); opacity: 0.07; }
+    }
+    @keyframes rotateFireRing {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes pulseGlow {
+      0% { transform: scale(1); filter: drop-shadow(0 0 10px rgba(255,69,0,0.4)); }
+      100% { transform: scale(1.05); filter: drop-shadow(0 0 25px rgba(255,69,0,0.8)); }
+    }
+    @keyframes splashBar {
+      0% { left: -40%; width: 40%; }
+      100% { left: 100%; width: 50%; }
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -432,17 +603,616 @@
       font-family: inherit; transition: all 0.15s;
     }
     .tab-btn.active { background: var(--bg-card); color: var(--text-1); box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
-  </style>
+  
+    .login-page-container {
+      display: grid;
+      grid-template-columns: 45fr 55fr;
+      height: 100vh;
+      max-height: 100vh;
+      width: 100%;
+      max-width: 1800px;
+      margin: 0 auto;
+      background: #07090E;
+      position: relative;
+      z-index: 10;
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+
+    @media (max-width: 1024px) {
+      .login-page-container {
+        grid-template-columns: 1fr;
+        height: auto;
+        min-height: 100vh;
+        max-height: none;
+        overflow-y: auto;
+      }
+      .login-brand-panel {
+        display: none;
+      }
+    }
+
+    .watermark-bg-logo {
+      position: absolute;
+      top: 50%; left: 45%;
+      transform: translate(-50%, -50%);
+      width: clamp(380px, 40vw, 600px);
+      height: clamp(380px, 40vw, 600px);
+      background: url('icon.png') no-repeat center / contain;
+      opacity: 0.07;
+      pointer-events: none;
+      z-index: 1;
+      animation: watermarkFloat 14s ease-in-out infinite alternate;
+    }
+
+    .login-brand-panel {
+      padding: clamp(20px, 3vh, 36px) clamp(24px, 3vw, 42px);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      border-right: 1px solid rgba(255, 255, 255, 0.06);
+      position: relative;
+      z-index: 2;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .brand-top-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-top-logo {
+      width: 36px; height: 36px; border-radius: 50%; object-fit: contain;
+      box-shadow: 0 0 15px var(--fire-glow);
+    }
+    .brand-top-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-weight: 800; font-size: 0.8rem; color: #FFFFFF; letter-spacing: 0.05em;
+    }
+    .brand-top-sub {
+      font-size: 0.62rem; color: var(--fire); font-weight: 700; letter-spacing: 0.1em;
+    }
+
+    .brand-main-hero { margin-top: clamp(10px, 1.8vh, 20px); margin-bottom: clamp(8px, 1.2vh, 14px); }
+    .brand-hero-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(1.9rem, 2.4vw, 2.4rem); font-weight: 800; color: #FFFFFF; line-height: 1.1; letter-spacing: -0.02em;
+    }
+    .brand-hero-title .highlight-orange { color: #FF5500; }
+    .brand-hero-sub {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(1.15rem, 1.4vw, 1.35rem); font-weight: 700; color: #FF5500; margin-top: 4px; margin-bottom: 10px;
+    }
+    .brand-glow-line {
+      height: 3px; width: 45px; background: linear-gradient(90deg, #FF5500, transparent);
+      border-radius: 99px; margin-bottom: 10px; box-shadow: 0 0 10px #FF5500;
+    }
+    .brand-hero-tagline {
+      font-size: clamp(0.82rem, 0.95vw, 0.92rem); font-style: italic; color: var(--text-2); margin-bottom: 12px;
+    }
+    .brand-version-pill {
+      display: inline-block; padding: 3px 12px; border-radius: 99px;
+      background: rgba(255, 85, 0, 0.08); border: 1px solid rgba(255, 85, 0, 0.4);
+      color: #FF8C42; font-weight: 700; font-size: 0.7rem;
+    }
+
+    .brand-divider { height: 1px; background: rgba(255, 255, 255, 0.06); margin: clamp(8px, 1.2vh, 14px) 0; }
+
+    .brand-features-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: clamp(10px, 1.5vh, 16px);
+    }
+    .feature-item { text-align: center; }
+    .feature-icon {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: rgba(255, 85, 0, 0.08); border: 1px solid rgba(255, 85, 0, 0.25);
+      color: #FF8C42; display: flex; align-items: center; justify-content: center;
+      font-size: 0.9rem; margin: 0 auto 5px;
+      box-shadow: 0 0 10px rgba(255, 85, 0, 0.12);
+    }
+    .feature-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.75rem; color: #FFFFFF; }
+    .feature-desc { font-size: 0.6rem; color: var(--text-3); margin-top: 2px; line-height: 1.15; }
+
+    .brand-quote-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 85, 0, 0.25);
+      border-radius: 12px; padding: clamp(8px, 1.2vh, 12px) 14px;
+      display: flex; align-items: center; gap: 10px;
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+    }
+    .quote-check-icon {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: #FF5500; color: #FFFFFF;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.8rem; flex-shrink: 0; box-shadow: 0 0 10px rgba(255, 85, 0, 0.4);
+    }
+    .quote-title { font-weight: 700; font-size: 0.78rem; color: #FF8C42; }
+    .quote-text { font-size: 0.68rem; color: var(--text-2); margin-top: 1px; }
+
+    .brand-copyright { font-size: 0.65rem; color: var(--text-3); margin-top: clamp(6px, 1vh, 12px); }
+
+    /* RIGHT PANEL */
+    .login-form-panel {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: clamp(20px, 2.5vh, 32px) clamp(16px, 2.5vw, 32px) clamp(50px, 7vh, 70px);
+      background: radial-gradient(circle at 60% 50%, rgba(255, 69, 0, 0.08) 0%, transparent 65%);
+      height: 100%;
+      overflow: hidden;
+      z-index: 2;
+    }
+
+    .glass-login-card {
+      position: relative;
+      z-index: 5;
+      background: rgba(15, 18, 28, 0.78);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.75), 0 0 35px rgba(255, 69, 0, 0.2);
+      border-radius: 20px;
+      padding: clamp(22px, 2.5vh, 28px) clamp(20px, 2vw, 28px);
+      width: 100%; max-width: 410px;
+      animation: loginEntrance 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .card-icon-circle {
+      width: 52px; height: 52px; border-radius: 50%;
+      background: rgba(255, 85, 0, 0.1); border: 2px solid rgba(255, 85, 0, 0.4);
+      color: #FF8C42; display: flex; align-items: center; justify-content: center;
+      font-size: 1.25rem; margin: 0 auto 10px;
+      box-shadow: 0 0 18px rgba(255, 85, 0, 0.25);
+    }
+    .card-title {
+      font-family: 'Space Grotesk', sans-serif; font-size: 1.25rem; font-weight: 800;
+      color: #FFFFFF; text-align: center; margin-bottom: 2px;
+    }
+    .card-subtitle {
+      font-size: 0.7rem; color: var(--text-3); text-align: center; margin-bottom: 16px;
+    }
+
+    .inp-with-icon {
+      position: relative; margin-bottom: 10px;
+    }
+    .inp-icon {
+      position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+      color: var(--text-3); font-size: 0.82rem; pointer-events: none;
+    }
+    .inp-eye {
+      position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      color: var(--text-3); font-size: 0.82rem; cursor: pointer;
+    }
+    .inp-padded {
+      padding-left: 36px !important; padding-right: 36px !important;
+      min-height: 40px; font-size: 0.8rem;
+    }
+
+    .or-divider {
+      display: flex; align-items: center; gap: 10px; margin: 12px 0;
+      color: var(--text-3); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.08em;
+    }
+    .or-divider::before, .or-divider::after {
+      content: ''; flex: 1; height: 1px; background: rgba(255,255,255,0.08);
+    }
+
+    .login-bottom-status-bar {
+      position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+      width: calc(100% - 32px); max-width: 660px; z-index: 5;
+      background: rgba(17, 20, 30, 0.88); backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px;
+      padding: 8px 16px;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .status-col { display: flex; align-items: center; gap: 8px; font-size: 0.68rem; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .green-dot { background: #22C55E; box-shadow: 0 0 8px #22C55E; }
+    .green-text { color: #22C55E; font-weight: 600; }
+    .status-lbl { color: var(--text-3); font-size: 0.6rem; }
+    .status-val { font-weight: 600; color: var(--text-1); font-size: 0.68rem; }
+    .status-icon { font-size: 0.85rem; color: var(--text-3); }
+
+
+    /* ── Mobile hamburger button ── */
+    .mobile-menu-btn {
+      display: none;
+      align-items: center; justify-content: center;
+      width: 38px; height: 38px;
+      border-radius: 9px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      color: var(--text-1);
+      cursor: pointer;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+
+    /* ── Sidebar overlay backdrop ── */
+    .sidebar-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(2px);
+      z-index: 99;
+    }
+    .sidebar-overlay.visible { display: block; }
+
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); }
+      .sidebar.open { transform: translateX(0); box-shadow: 4px 0 32px rgba(0,0,0,0.5); }
+      .main-content { margin-left: 0; }
+      .col-2, .col-3 { grid-template-columns: 1fr; }
+      .stat-grid { grid-template-columns: 1fr; }
+      .page-body { padding: 14px; }
+      .panel-header { padding: 14px 16px; }
+      .panel-body { padding: 14px 16px; }
+      .inp, .sel { padding: 12px 12px; font-size: 0.9rem; border-radius: 12px; }
+      .btn { min-height: 44px; }
+      .pro-table { font-size: 0.8rem; }
+      .mobile-menu-btn { display: flex; }
+      /* Always show the close button inside sidebar on mobile */
+      #sidebarCloseBtn { display: block !important; }
+      /* Live pulse on mobile: bottom-center so it doesn't overlap nav */
+      #_livePulse { left: 50% !important; transform: translateX(-50%); bottom: 16px !important; white-space: nowrap; }
+    }
+
+    .hours-summary {
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px;
+    }
+    .summary-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; margin-bottom: 8px; }
+    .summary-row:last-child { margin-bottom: 0; }
+    .summary-val { font-family: 'Space Grotesk', sans-serif; font-weight: 700; }
+
+    .admin-input { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; color: var(--text-1); padding: 6px 10px; font-size: 0.75rem; font-family: inherit; width: 100%; transition: border-color 0.15s; }
+    .admin-input:focus { outline: none; border-color: var(--fire); }
+
+    .tab-bar { display: flex; gap: 4px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 4px; margin-bottom: 20px; }
+    .tab-btn {
+      flex: 1; padding: 7px 12px; border-radius: 7px; font-size: 0.72rem; font-weight: 600;
+      cursor: pointer; border: none; background: transparent; color: var(--text-2);
+      font-family: inherit; transition: all 0.15s;
+    }
+    .tab-btn.active { background: var(--bg-card); color: var(--text-1); box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
+  
+    .login-page-container {
+      display: grid;
+      grid-template-columns: 1fr 1.1fr;
+      min-height: 100vh;
+      width: 100%;
+      max-width: 1800px;
+      margin: 0 auto;
+      background: #07090E;
+      position: relative;
+      z-index: 10;
+      align-items: center;
+    }
+
+    @media (max-width: 1024px) {
+      .login-page-container {
+        grid-template-columns: 1fr;
+        height: auto;
+        min-height: 100vh;
+        max-height: none;
+        overflow-y: auto;
+      }
+      .login-brand-panel {
+        display: none;
+      }
+    }
+
+    @media (max-width: 1024px) {
+      .login-page-container {
+        grid-template-columns: 1fr;
+        min-height: 100vh;
+      }
+      .login-brand-panel {
+        display: none;
+      }
+    }
+
+    .login-brand-panel {
+      padding: 32px 48px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      border-right: 1px solid rgba(255, 255, 255, 0.06);
+      position: relative;
+      z-index: 2;
+    }
+
+    .brand-top-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .brand-top-logo {
+      width: 44px; height: 44px; border-radius: 50%; object-fit: contain;
+      box-shadow: 0 0 20px var(--fire-glow);
+    }
+    .brand-top-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-weight: 800; font-size: 0.85rem; color: #FFFFFF; letter-spacing: 0.05em;
+    }
+    .brand-top-sub {
+      font-size: 0.65rem; color: var(--fire); font-weight: 700; letter-spacing: 0.1em;
+    }
+
+    .brand-main-hero { margin-top: 32px; margin-bottom: 20px; }
+    .brand-hero-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 2.8rem; font-weight: 800; color: #FFFFFF; line-height: 1.1; letter-spacing: -0.02em;
+    }
+    .brand-hero-title .highlight-white { color: #FFFFFF; }
+    .brand-hero-sub {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 1.65rem; font-weight: 700; color: #FF5500; margin-top: 8px; margin-bottom: 16px;
+    }
+    .brand-glow-line {
+      height: 3px; width: 60px; background: linear-gradient(90deg, #FF5500, transparent);
+      border-radius: 99px; margin-bottom: 18px; box-shadow: 0 0 12px #FF5500;
+    }
+    .brand-hero-tagline {
+      font-size: 1.05rem; font-style: italic; color: var(--text-2); margin-bottom: 20px;
+    }
+    .brand-version-pill {
+      display: inline-block; padding: 6px 18px; border-radius: 99px;
+      background: rgba(255, 85, 0, 0.08); border: 1px solid rgba(255, 85, 0, 0.4);
+      color: #FF8C42; font-weight: 700; font-size: 0.78rem;
+    }
+
+    .brand-divider { height: 1px; background: rgba(255, 255, 255, 0.08); margin: 24px 0; }
+
+    .brand-features-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 28px;
+    }
+    .feature-item { text-align: center; }
+    .feature-icon {
+      width: 46px; height: 46px; border-radius: 50%;
+      background: rgba(255, 85, 0, 0.08); border: 1px solid rgba(255, 85, 0, 0.25);
+      color: #FF8C42; display: flex; align-items: center; justify-content: center;
+      font-size: 1.05rem; margin: 0 auto 10px;
+      box-shadow: 0 0 16px rgba(255, 85, 0, 0.15);
+    }
+    .feature-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.85rem; color: #FFFFFF; }
+    .feature-desc { font-size: 0.66rem; color: var(--text-3); margin-top: 3px; line-height: 1.2; }
+
+    .brand-quote-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 85, 0, 0.3);
+      border-radius: 14px; padding: 14px 18px;
+      display: flex; align-items: center; gap: 14px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    }
+    .quote-check-icon {
+      width: 34px; height: 34px; border-radius: 8px;
+      background: #FF5500; color: #FFFFFF;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.95rem; flex-shrink: 0; box-shadow: 0 0 16px rgba(255, 85, 0, 0.5);
+    }
+    .quote-title { font-weight: 700; font-size: 0.85rem; color: #FF8C42; }
+    .quote-text { font-size: 0.73rem; color: var(--text-2); margin-top: 2px; }
+
+    .brand-copyright { font-size: 0.72rem; color: var(--text-3); margin-top: 20px; }
+
+    /* RIGHT PANEL */
+    .login-form-panel {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 40px 24px 80px;
+      background: radial-gradient(circle at 50% 50%, rgba(255, 69, 0, 0.12) 0%, transparent 65%);
+      overflow: hidden;
+    }
+
+    .fiery-ring-bg {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 620px; height: 620px;
+      pointer-events: none;
+      z-index: 1;
+    }
+    .fiery-ring-outer {
+      position: absolute; inset: 0; border-radius: 50%;
+      border: 3px solid rgba(255, 69, 0, 0.4);
+      box-shadow: 0 0 70px rgba(255, 69, 0, 0.4), inset 0 0 70px rgba(255, 69, 0, 0.3);
+      animation: rotateFireRing 18s linear infinite;
+    }
+    .fiery-ring-outer::before {
+      content: ''; position: absolute; inset: -14px; border-radius: 50%;
+      border: 2px dashed rgba(245, 166, 35, 0.5);
+      animation: rotateFireRing 12s linear infinite reverse;
+    }
+    .fiery-logo-img {
+      width: 500px; height: 500px; border-radius: 50%; object-fit: contain;
+      opacity: 0.82; filter: drop-shadow(0 0 65px rgba(255, 69, 0, 0.95));
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      animation: pulseGlow 3s ease-in-out infinite alternate;
+    }
+
+    .glass-login-card {
+      position: relative;
+      z-index: 5;
+      background: rgba(15, 18, 28, 0.52);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8), 0 0 50px rgba(255, 69, 0, 0.35);
+      border-radius: 24px;
+      padding: 40px 36px;
+      width: 100%; max-width: 460px;
+      animation: loginEntrance 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .card-icon-circle {
+      width: 64px; height: 64px; border-radius: 50%;
+      background: rgba(255, 85, 0, 0.1); border: 2px solid rgba(255, 85, 0, 0.4);
+      color: #FF8C42; display: flex; align-items: center; justify-content: center;
+      font-size: 1.5rem; margin: 0 auto 16px;
+      box-shadow: 0 0 24px rgba(255, 85, 0, 0.3);
+    }
+    .card-title {
+      font-family: 'Space Grotesk', sans-serif; font-size: 1.45rem; font-weight: 800;
+      color: #FFFFFF; text-align: center; margin-bottom: 4px;
+    }
+    .card-subtitle {
+      font-size: 0.78rem; color: var(--text-3); text-align: center; margin-bottom: 24px;
+    }
+
+    .inp-with-icon {
+      position: relative; margin-bottom: 16px;
+    }
+    .inp-icon {
+      position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+      color: var(--text-3); font-size: 0.9rem; pointer-events: none;
+    }
+    .inp-eye {
+      position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+      color: var(--text-3); font-size: 0.9rem; cursor: pointer;
+    }
+    .inp-padded {
+      padding-left: 40px !important; padding-right: 40px !important;
+      min-height: 46px; font-size: 0.85rem;
+    }
+
+    .or-divider {
+      display: flex; align-items: center; gap: 12px; margin: 20px 0;
+      color: var(--text-3); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em;
+    }
+    .or-divider::before, .or-divider::after {
+      content: ''; flex: 1; height: 1px; background: rgba(255,255,255,0.08);
+    }
+
+    .login-bottom-status-bar {
+      position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+      width: calc(100% - 48px); max-width: 720px; z-index: 5;
+      background: rgba(17, 20, 30, 0.88); backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 14px;
+      padding: 10px 22px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    }
+    .status-col { display: flex; align-items: center; gap: 10px; font-size: 0.72rem; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .green-dot { background: #22C55E; box-shadow: 0 0 10px #22C55E; }
+    .green-text { color: #22C55E; font-weight: 600; }
+    .status-lbl { color: var(--text-3); font-size: 0.65rem; }
+    .status-val { font-weight: 600; color: var(--text-1); font-size: 0.72rem; }
+    .status-icon { font-size: 1rem; color: var(--text-3); }
+
+
+    @keyframes splashAutoFade {
+      0% { opacity: 1; visibility: visible; }
+      99% { opacity: 0; visibility: hidden; pointer-events: none; }
+      100% { opacity: 0; visibility: hidden; pointer-events: none; display: none !important; }
+    }
+    #splashLoader {
+      animation: splashAutoFade 0.5s ease 1.6s forwards !important;
+    }
+
+    /* ── MOBILE WORKER LOGIN OPTIMIZATIONS ── */
+    @media (max-width: 768px) {
+      .login-page-container {
+        display: flex !important;
+        flex-direction: column !important;
+        min-height: 100vh !important;
+        height: auto !important;
+        max-height: none !important;
+        padding: 16px 14px 70px !important;
+        justify-content: center !important;
+        align-items: center !important;
+        overflow-y: auto !important;
+      }
+
+      .login-brand-panel {
+        display: none !important;
+      }
+
+      .login-form-panel {
+        width: 100% !important;
+        padding: 0 !important;
+        height: auto !important;
+        background: transparent !important;
+      }
+
+      .glass-login-card {
+        width: 100% !important;
+        max-width: 440px !important;
+        padding: 24px 18px !important;
+        border-radius: 20px !important;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.8), 0 0 25px rgba(255, 69, 0, 0.25) !important;
+      }
+
+      .card-icon-circle {
+        width: 48px !important;
+        height: 48px !important;
+        font-size: 1.2rem !important;
+        margin-bottom: 8px !important;
+      }
+
+      .card-title {
+        font-size: 1.2rem !important;
+      }
+
+      .card-subtitle {
+        font-size: 0.72rem !important;
+        margin-bottom: 14px !important;
+      }
+
+      /* Mobile touch-friendly inputs */
+      .inp-padded {
+        min-height: 48px !important;
+        font-size: 0.95rem !important;
+        border-radius: 10px !important;
+      }
+
+      .inp-icon, .inp-eye {
+        font-size: 0.95rem !important;
+      }
+
+      /* Mobile touch-friendly buttons */
+      .btn-fire, .btn-gold {
+        min-height: 50px !important;
+        font-size: 0.95rem !important;
+        border-radius: 12px !important;
+        font-weight: 700 !important;
+      }
+
+      .login-bottom-status-bar {
+        position: relative !important;
+        bottom: auto !important;
+        left: auto !important;
+        transform: none !important;
+        width: 100% !important;
+        max-width: 440px !important;
+        margin-top: 16px !important;
+        padding: 8px 12px !important;
+        flex-wrap: wrap !important;
+        justify-content: center !important;
+        gap: 8px 16px !important;
+      }
+
+      .status-col {
+        font-size: 0.65rem !important;
+      }
+    }
+</style>
 </head>
 <body>
+<canvas id="loginBgCanvas" style="position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:0;"></canvas>
+<div id="loginWatermark" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:500px;height:500px;pointer-events:none;z-index:0;opacity:0.08;background:url('./icon.png') no-repeat center/contain;animation:watermarkFloat 12s ease-in-out infinite alternate;"></div>
 
 <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeMobileSidebar()"></div>
 <aside class="sidebar" id="adminSidebar" style="display:none;">
   <div class="sidebar-logo">
-    <div class="logo-badge"><i class="fas fa-fire-extinguisher" style="color:white;font-size:1rem;"></i></div>
+    <div class="logo-badge" style="background:none;box-shadow:0 0 15px var(--fire-glow);padding:0;"><img src="icon.png" alt="Logo" style="width:38px;height:38px;border-radius:10px;object-fit:contain;"></div>
     <div style="flex:1;">
-      <div class="brand-name">INDUS FIRE</div>
-      <div class="brand-sub">Safety Systems</div>
+      <div class="brand-name" style="font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:0.88rem;color:#FFFFFF;line-height:1.2;">INDUS FIRE</div>
+      <div class="brand-sub" style="font-size:0.65rem;color:var(--fire);font-weight:600;">Safety Systems</div>
     </div>
     <button onclick="closeMobileSidebar()" title="Close menu" style="display:none;background:none;border:none;color:var(--text-3);cursor:pointer;font-size:1rem;padding:4px;" id="sidebarCloseBtn"><i class="fas fa-times"></i></button>
   </div>
@@ -493,12 +1263,21 @@
     <div class="topbar-right" id="topbarRight"></div>
   </div>
 
-  <div id="appRoot" style="flex:1;">
-    <!-- Shown instantly before JS runs — replaced by renderWorkerLogin() -->
-    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;" id="splashLoader">
-      <div style="text-align:center;">
-        <div style="width:56px;height:56px;border-radius:50%;border:3px solid rgba(255,69,0,0.2);border-top-color:var(--fire);animation:spin 0.8s linear infinite;margin:0 auto 16px;"></div>
-        <div style="font-size:0.85rem;color:var(--text-3);">Loading Indus Fire Safety…</div>
+  <div id="appRoot" style="flex:1;"></div>
+
+  <!-- Enterprise Timed Splash Screen (Guaranteed Auto-Fade) -->
+  <div style="position:fixed;inset:0;background:#07090E;z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;transition:opacity 0.5s ease, visibility 0.5s ease;" id="splashLoader">
+    <div style="text-align:center;max-width:380px;width:100%;animation:loginEntrance 0.7s cubic-bezier(0.16,1,0.3,1) both;">
+      <div style="position:relative;width:120px;height:120px;margin:0 auto 24px;display:flex;align-items:center;justify-content:center;">
+        <div style="position:absolute;inset:0;border-radius:50%;border:2px solid transparent;border-top-color:var(--fire);border-right-color:rgba(255,69,0,0.3);animation:rotateFireRing 1.2s linear infinite;"></div>
+        <div style="position:absolute;inset:-6px;border-radius:50%;border:1px dashed rgba(245,166,35,0.4);animation:rotateFireRing 3s linear infinite reverse;"></div>
+        <img src="icon.png" alt="Indus Fire Logo" style="width:90px;height:90px;border-radius:50%;object-fit:contain;box-shadow:0 0 35px var(--fire-glow);animation:pulseGlow 2s ease-in-out infinite alternate;">
+      </div>
+      <div style="font-family:'Space Grotesk',sans-serif;font-size:1.45rem;font-weight:800;letter-spacing:-0.02em;color:#FFFFFF;margin-bottom:4px;">Indus Fire Safety Pvt Ltd</div>
+      <div style="font-size:0.85rem;color:var(--fire);font-weight:600;margin-bottom:12px;">Project Hour Tracking System</div>
+      <div style="font-size:0.65rem;color:var(--text-2);letter-spacing:0.1em;text-transform:uppercase;font-weight:700;margin-bottom:24px;background:var(--bg-elevated);padding:5px 14px;border-radius:99px;display:inline-block;border:1px solid var(--border);">Version 3.0 Enterprise</div>
+      <div style="width:100%;height:4px;background:var(--bg-elevated);border-radius:99px;overflow:hidden;position:relative;">
+        <div style="position:absolute;top:0;left:0;height:100%;width:40%;background:linear-gradient(90deg,var(--fire),#FF8C42);border-radius:99px;animation:splashBar 1.5s ease-in-out infinite alternate;"></div>
       </div>
     </div>
   </div>
@@ -535,6 +1314,18 @@ function getWorkerPhone(workerName){ const w = workers.find(x=>x.name===workerNa
 let jobEntries = [], projects = [], workers = [], activities = [], pendingEntries = [];
 let currentMode = "worker";
 let loggedInWorker = null;
+
+// ── LOGIN ALIASES FOR EXTENDED API COMPATIBILITY ──
+function doWorkerLogin(name, pin){
+  const w = workers.find(x => x.name === name && x.pin === pin);
+  if(w){ loggedInWorker = w; currentMode = 'worker'; renderWorkerDashboard(); return true; }
+  showToast('Invalid credentials', 'error'); return false;
+}
+function doAdminLogin(pass){
+  if(pass === getAdminPassword()){ adminLoggedIn = true; currentMode = 'admin'; renderAdminDashboard(); return true; }
+  showToast('Wrong password', 'error'); return false;
+}
+
 let adminLoggedIn = false;
 let activeAdminSection = "overview";
 
@@ -1075,31 +1866,140 @@ function adminNav(el, section){
   if(window.innerWidth <= 768) closeMobileSidebar();
 }
 
+
+
 // ── WORKER LOGIN ──
 function renderWorkerLogin(){
-  document.getElementById('adminSidebar').style.display='none';
+  const sbEl = document.getElementById('adminSidebar');
+  if(sbEl) sbEl.style.display='none';
+  const mc = document.getElementById('mainContent');
+  if(mc) mc.classList.add('no-sidebar');
+  const fn = document.getElementById('footerNote');
+  if(fn) fn.style.display = 'none';
   hideTopbar();
-  document.getElementById('appRoot').innerHTML=`
-    <div class="login-wrap fade-up">
-      <div class="login-card">
-        <div class="login-icon-ring"><i class="fas fa-hard-hat"></i></div>
-        <div style="font-family:'Space Grotesk',sans-serif;font-size:1.3rem;font-weight:700;margin-bottom:4px;">Worker Login</div>
-        <div style="font-size:0.72rem;color:var(--text-3);margin-bottom:24px;">Select your name and enter your PIN</div>
-        <select id="workerNameSelect" class="sel" style="margin-bottom:12px;">
-          <option value="">Select Name</option>
-          ${workers.map(w=>`<option value="${escapeHtml(w.name)}">${escapeHtml(w.name)}</option>`).join('')}
-        </select>
-        <input type="password" id="workerPinInput" class="inp" placeholder="Enter PIN" style="margin-bottom:16px;">
-        <button id="workerLoginBtn" class="btn btn-fire" style="width:100%;justify-content:center;">
-          <i class="fas fa-arrow-right-to-bracket"></i>Login
-        </button>
-        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
-          <button id="switchToAdminLoginBtn" class="btn btn-ghost btn-sm" style="width:100%;justify-content:center;">
-            <i class="fas fa-user-shield"></i>Switch to Admin Login
+
+  setTimeout(startLoginStatusClock, 100);
+
+  document.getElementById('appRoot').innerHTML = `
+    <div class="login-page-container fade-up">
+      
+  <div class="watermark-bg-logo"></div>
+  <div class="login-brand-panel">
+    <div class="brand-top-header">
+      <img src="icon.png" alt="Logo" class="brand-top-logo">
+      <div>
+        <div class="brand-top-title">INDUS FIRE SAFETY PVT LTD</div>
+        <div class="brand-top-sub">SINCE 1993</div>
+      </div>
+    </div>
+
+    <div class="brand-main-hero">
+      <h1 class="brand-hero-title">Indus Fire<br><span class="highlight-orange">Safety</span> Pvt Ltd</h1>
+      <h2 class="brand-hero-sub">Project Hour Tracking System</h2>
+      <div class="brand-glow-line"></div>
+      <p class="brand-hero-tagline">Smart Digital Workforce Management</p>
+      <div class="brand-version-pill"><i class="fas fa-shield-halved" style="margin-right:4px;"></i>Version 3.0 Enterprise</div>
+    </div>
+
+    <div class="brand-divider"></div>
+
+    <div class="brand-features-grid">
+      <div class="feature-item">
+        <div class="feature-icon"><i class="fas fa-shield-halved"></i></div>
+        <div class="feature-title">Secure</div>
+        <div class="feature-desc">Enterprise Grade Security</div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon"><i class="fas fa-clock"></i></div>
+        <div class="feature-title">Real-time</div>
+        <div class="feature-desc">Live Tracking & Sync</div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon"><i class="fas fa-chart-line"></i></div>
+        <div class="feature-title">Analytics</div>
+        <div class="feature-desc">Powerful Reports & Insights</div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon"><i class="fas fa-mobile-screen"></i></div>
+        <div class="feature-title">Responsive</div>
+        <div class="feature-desc">Works on All Devices</div>
+      </div>
+    </div>
+
+    <div class="brand-quote-card">
+      <div class="quote-check-icon"><i class="fas fa-shield-cat"></i></div>
+      <div>
+        <div class="quote-title">Empowering Safety. Enabling Efficiency.</div>
+        <div class="quote-text">Building a safer tomorrow with smarter technology.</div>
+      </div>
+    </div>
+
+    <div class="brand-copyright">
+      © 2026 Indus Fire Safety Pvt Ltd. All rights reserved.
+    </div>
+  </div>
+
+      <div class="login-form-panel">
+        <div class="glass-login-card">
+          <div class="card-icon-circle"><i class="fas fa-user-hard-hat"></i></div>
+          <h3 class="card-title">Worker Login</h3>
+          <p class="card-subtitle">Select your name and enter your PIN</p>
+
+          <div style="text-align:left;">
+            <label style="font-size:0.62rem;color:var(--text-3);font-weight:700;display:block;margin-bottom:4px;letter-spacing:0.05em;">SELECT WORKER NAME</label>
+            <div class="inp-with-icon">
+              <i class="fas fa-user inp-icon"></i>
+              <select id="workerNameSelect" class="sel inp-padded">
+                <option value="">Select Name</option>
+                ${workers.map(w=>`<option value="${escapeHtml(w.name)}">${escapeHtml(w.name)}</option>`).join('')}
+              </select>
+            </div>
+
+            <label style="font-size:0.62rem;color:var(--text-3);font-weight:700;display:block;margin-bottom:4px;letter-spacing:0.05em;">PIN CODE</label>
+            <div class="inp-with-icon">
+              <i class="fas fa-key inp-icon"></i>
+              <input type="password" id="workerPinInput" class="inp inp-padded" placeholder="Enter 4-Digit PIN">
+            </div>
+          </div>
+
+          <button id="workerLoginBtn" class="btn btn-fire" style="width:100%;justify-content:center;min-height:44px;font-size:0.85rem;margin-top:6px;box-shadow:0 4px 16px rgba(255,69,0,0.4);">
+            <i class="fas fa-right-to-bracket"></i>Login to Worker Portal
+          </button>
+
+          <div class="or-divider">OR</div>
+
+          <button id="switchToAdminLoginBtn" class="btn btn-ghost" style="width:100%;justify-content:center;min-height:40px;font-size:0.78rem;">
+            <i class="fas fa-user-shield" style="color:var(--gold);"></i>Switch to Admin Login
           </button>
         </div>
+
+        
+  <div class="login-bottom-status-bar">
+    <div class="status-col">
+      <span class="status-dot green-dot"></span>
+      <div>
+        <div class="status-lbl">System Status</div>
+        <div class="status-val green-text">All Systems Operational</div>
+      </div>
+    </div>
+    <div class="status-col">
+      <i class="fas fa-calendar-alt status-icon"></i>
+      <div>
+        <div id="statusDateVal" class="status-val">---</div>
+        <div id="statusTimeVal" class="status-lbl">--:--:--</div>
+      </div>
+    </div>
+    <div class="status-col">
+      <i class="fas fa-cloud status-icon green-text"></i>
+      <div>
+        <div class="status-lbl">Connection</div>
+        <div class="status-val green-text">Realtime Connected</div>
+      </div>
+    </div>
+  </div>
       </div>
     </div>`;
+
   document.getElementById('workerLoginBtn')?.addEventListener('click',()=>{
     const name = document.getElementById('workerNameSelect').value;
     const pin  = document.getElementById('workerPinInput').value;
@@ -1112,27 +2012,136 @@ function renderWorkerLogin(){
 
 // ── ADMIN LOGIN ──
 function renderAdminLogin(){
-  document.getElementById('adminSidebar').style.display='none';
+  const sbEl = document.getElementById('adminSidebar');
+  if(sbEl) sbEl.style.display='none';
+  const mc = document.getElementById('mainContent');
+  if(mc) mc.classList.add('no-sidebar');
+  const fn = document.getElementById('footerNote');
+  if(fn) fn.style.display = 'none';
   hideTopbar();
-  document.getElementById('appRoot').innerHTML=`
-    <div class="login-wrap fade-up">
-      <div class="login-card">
-        <div class="login-icon-ring" style="color:var(--gold);background:var(--gold-soft);border-color:rgba(245,166,35,0.4);box-shadow:0 0 30px rgba(245,166,35,0.2);">
-          <i class="fas fa-user-shield"></i>
-        </div>
-        <div style="font-family:'Space Grotesk',sans-serif;font-size:1.3rem;font-weight:700;margin-bottom:4px;">Admin Login</div>
-        <div style="font-size:0.72rem;color:var(--text-3);margin-bottom:24px;">Enter master password to continue</div>
-        <input type="password" id="adminPassInput" class="inp" placeholder="Master password" style="margin-bottom:16px;">
-        <button id="adminLoginBtn" class="btn btn-gold" style="width:100%;justify-content:center;background:linear-gradient(135deg,var(--gold),#E8960F);color:#0B0D14;">
-          <i class="fas fa-unlock-alt"></i>Access Dashboard
-        </button>
-        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
-          <button id="switchToWorkerLoginBtn" class="btn btn-ghost btn-sm" style="width:100%;justify-content:center;">
+
+  setTimeout(startLoginStatusClock, 100);
+
+  document.getElementById('appRoot').innerHTML = `
+    <div class="login-page-container fade-up">
+      
+  <div class="watermark-bg-logo"></div>
+  <div class="login-brand-panel">
+    <div class="brand-top-header">
+      <img src="icon.png" alt="Logo" class="brand-top-logo">
+      <div>
+        <div class="brand-top-title">INDUS FIRE SAFETY PVT LTD</div>
+        <div class="brand-top-sub">SINCE 1993</div>
+      </div>
+    </div>
+
+    <div class="brand-main-hero">
+      <h1 class="brand-hero-title">Indus Fire<br><span class="highlight-orange">Safety</span> Pvt Ltd</h1>
+      <h2 class="brand-hero-sub">Project Hour Tracking System</h2>
+      <div class="brand-glow-line"></div>
+      <p class="brand-hero-tagline">Smart Digital Workforce Management</p>
+      <div class="brand-version-pill"><i class="fas fa-shield-halved" style="margin-right:4px;"></i>Version 3.0 Enterprise</div>
+    </div>
+
+    <div class="brand-divider"></div>
+
+    <div class="brand-features-grid">
+      <div class="feature-item">
+        <div class="feature-icon"><i class="fas fa-shield-halved"></i></div>
+        <div class="feature-title">Secure</div>
+        <div class="feature-desc">Enterprise Grade Security</div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon"><i class="fas fa-clock"></i></div>
+        <div class="feature-title">Real-time</div>
+        <div class="feature-desc">Live Tracking & Sync</div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon"><i class="fas fa-chart-line"></i></div>
+        <div class="feature-title">Analytics</div>
+        <div class="feature-desc">Powerful Reports & Insights</div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon"><i class="fas fa-mobile-screen"></i></div>
+        <div class="feature-title">Responsive</div>
+        <div class="feature-desc">Works on All Devices</div>
+      </div>
+    </div>
+
+    <div class="brand-quote-card">
+      <div class="quote-check-icon"><i class="fas fa-shield-cat"></i></div>
+      <div>
+        <div class="quote-title">Empowering Safety. Enabling Efficiency.</div>
+        <div class="quote-text">Building a safer tomorrow with smarter technology.</div>
+      </div>
+    </div>
+
+    <div class="brand-copyright">
+      © 2026 Indus Fire Safety Pvt Ltd. All rights reserved.
+    </div>
+  </div>
+
+      <div class="login-form-panel">
+        <div class="glass-login-card">
+          <div class="card-icon-circle" style="background:rgba(245,166,35,0.1);border-color:rgba(245,166,35,0.4);color:var(--gold);box-shadow:0 0 18px rgba(245,166,35,0.3);">
+            <i class="fas fa-user-shield"></i>
+          </div>
+          <h3 class="card-title">Administrator Login</h3>
+          <p class="card-subtitle">Access the Administrator Control Center</p>
+
+          <div style="text-align:left;">
+            <label style="font-size:0.62rem;color:var(--text-3);font-weight:700;display:block;margin-bottom:4px;letter-spacing:0.05em;">MASTER PASSWORD</label>
+            <div class="inp-with-icon">
+              <i class="fas fa-lock inp-icon"></i>
+              <input type="password" id="adminPassInput" class="inp inp-padded" placeholder="Enter master password">
+              <i class="fas fa-eye inp-eye" onclick="togglePassVisibility('adminPassInput', this)"></i>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;font-size:0.7rem;color:var(--text-2);">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <input type="checkbox" style="accent-color:var(--fire);"> Remember this device
+              </label>
+              <a href="#" onclick="showToast('Contact system administrator for password reset','info');return false;" style="color:var(--gold);text-decoration:none;">Forgot password?</a>
+            </div>
+          </div>
+
+          <button id="adminLoginBtn" class="btn btn-gold" style="width:100%;justify-content:center;min-height:44px;font-size:0.85rem;background:linear-gradient(135deg,var(--gold),#E8960F);color:#0B0D14;font-weight:700;box-shadow:0 4px 16px rgba(245,166,35,0.4);">
+            <i class="fas fa-lock"></i>Access Admin Dashboard
+          </button>
+
+          <div class="or-divider">OR</div>
+
+          <button id="switchToWorkerLoginBtn" class="btn btn-ghost" style="width:100%;justify-content:center;min-height:40px;font-size:0.78rem;">
             <i class="fas fa-arrow-left"></i>Back to Worker Login
           </button>
         </div>
+
+        
+  <div class="login-bottom-status-bar">
+    <div class="status-col">
+      <span class="status-dot green-dot"></span>
+      <div>
+        <div class="status-lbl">System Status</div>
+        <div class="status-val green-text">All Systems Operational</div>
+      </div>
+    </div>
+    <div class="status-col">
+      <i class="fas fa-calendar-alt status-icon"></i>
+      <div>
+        <div id="statusDateVal" class="status-val">---</div>
+        <div id="statusTimeVal" class="status-lbl">--:--:--</div>
+      </div>
+    </div>
+    <div class="status-col">
+      <i class="fas fa-cloud status-icon green-text"></i>
+      <div>
+        <div class="status-lbl">Connection</div>
+        <div class="status-val green-text">Realtime Connected</div>
+      </div>
+    </div>
+  </div>
       </div>
     </div>`;
+
   document.getElementById('adminLoginBtn')?.addEventListener('click',()=>{
     if(document.getElementById('adminPassInput').value===getAdminPassword()){
       adminLoggedIn=true; currentMode='admin'; renderAdminDashboard();
@@ -1140,6 +2149,7 @@ function renderAdminLogin(){
   });
   document.getElementById('switchToWorkerLoginBtn')?.addEventListener('click',()=>{ currentMode='worker'; renderWorkerLogin(); });
 }
+
 
 // ── TOAST ──
 function showToast(msg, type='success'){
@@ -1159,8 +2169,13 @@ function showToast(msg, type='success'){
 
 // ── ADMIN DASHBOARD ──
 function renderAdminDashboard(){
+  const fn = document.getElementById('footerNote');
+  if(fn) fn.style.display = 'block';
   if(!adminLoggedIn){ renderAdminLogin(); return; }
-  document.getElementById('adminSidebar').style.display='flex';
+  const sbEl = document.getElementById('adminSidebar');
+  if(sbEl) sbEl.style.display='flex';
+  const mc = document.getElementById('mainContent');
+  if(mc) mc.classList.remove('no-sidebar');
   setTopbar('Dashboard','Overview & quick stats','admin');
   renderAdminSection('overview');
 }
@@ -1222,7 +2237,31 @@ function buildOverview(){
       <td>${escapeHtml(e.projectName)}</td><td>${escapeHtml(e.activity)}</td>
       <td><span class="chip chip-gold">${e.hours.toFixed(1)}h</span></td>
     </tr>`).join('') || '<tr><td colspan="5"><div class="empty-state"><i class="fas fa-inbox"></i>No entries yet</div></td></tr>';
+
+  setTimeout(startAdminHeroClock, 100);
+
   return `
+    <div class="panel fade-up" style="margin-bottom:24px;background:linear-gradient(135deg, rgba(15,18,28,0.9), rgba(22,25,40,0.9));border:1px solid var(--border-active);box-shadow:0 8px 30px rgba(0,0,0,0.3);">
+      <div style="padding:22px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+        <div style="display:flex;align-items:center;gap:16px;">
+          <img src="icon.png" alt="Logo" style="width:52px;height:52px;border-radius:50%;object-fit:contain;box-shadow:0 0 20px var(--fire-glow);">
+          <div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-size:1.15rem;font-weight:800;color:#FFFFFF;line-height:1.2;">Indus Fire Safety Pvt Ltd</div>
+            <div style="font-size:0.75rem;color:var(--text-2);font-weight:500;">Project Hour Tracking System · Administrator Console</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:8px 14px;text-align:right;">
+            <div id="heroClock" style="font-family:'Space Grotesk',sans-serif;font-size:0.95rem;font-weight:700;color:var(--fire);line-height:1;">--:--:--</div>
+            <div id="heroDate" style="font-size:0.65rem;color:var(--text-3);margin-top:2px;">---</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);padding:8px 14px;border-radius:99px;font-size:0.72rem;color:var(--green);font-weight:700;">
+            <span style="width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 10px var(--green);animation:pulseGlow 1.5s infinite alternate;"></span>
+            Realtime Connected
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="stat-grid">
       <div class="stat-card fade-up" style="animation-delay:0.05s;">
         <div class="stat-icon" style="background:var(--fire-soft);color:var(--fire);"><i class="fas fa-clock"></i></div>
@@ -2897,6 +3936,8 @@ window.adminDeleteEntry = function(id){
 // ── WORKER DASHBOARD ──
 let _workerTab = 'log';
 function renderWorkerDashboard(){
+  const fn = document.getElementById('footerNote');
+  if(fn) fn.style.display = 'block';
   if(!loggedInWorker){ renderWorkerLogin(); return; }
   const worker = loggedInWorker;
   const today  = getToday();
@@ -3524,6 +4565,16 @@ function setupRealtimeSubscriptions(){
   // 1. Load local data and show login IMMEDIATELY — never block on network
   loadData();
   renderWorkerLogin();
+
+  // Smoothly fade out splash screen loader after ~2.0s sequence
+  setTimeout(() => {
+    const loader = document.getElementById('splashLoader');
+    if (loader) {
+      loader.style.opacity = '0';
+      loader.style.visibility = 'hidden';
+      setTimeout(() => { if (loader && loader.parentNode) loader.parentNode.removeChild(loader); }, 500);
+    }
+  }, 2000);
 
   // 2. Try Supabase in background with a 5-second timeout
   const supabaseReady = await Promise.race([

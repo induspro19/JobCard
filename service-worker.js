@@ -1,17 +1,22 @@
-const CACHE_NAME = 'indus-jobcard-v1.0.0';
+const CACHE_NAME = 'indus-jobcard-v3.0.8';
 
 // Core static assets to cache for offline application load
 const STATIC_ASSETS = [
   './',
   './index.html',
   './manifest.json',
+  './icon.png',
   './icon.svg',
+  './apple-touch-icon.png',
+  './favicon-32.png',
   './icons/icon-72x72.png',
   './icons/icon-96x96.png',
   './icons/icon-128x128.png',
   './icons/icon-144x144.png',
   './icons/icon-152x152.png',
+  './icons/icon-180x180.png',
   './icons/icon-192x192.png',
+  './icons/icon-256x256.png',
   './icons/icon-384x384.png',
   './icons/icon-512x512.png',
   './icons/icon-maskable-192x192.png',
@@ -24,13 +29,12 @@ const STATIC_ASSETS = [
 
 // Install Event — Pre-cache static shell & assets
 self.addEventListener('install', (event) => {
-  console.log('[SW] Installing Service Worker v1.0.0...');
+  console.log('[SW] Installing Service Worker v3.0.0...');
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       console.log('[SW] Pre-caching app shell & static dependencies');
       return cache.addAll(STATIC_ASSETS).catch((err) => {
         console.warn('[SW] Pre-cache partial warning:', err);
-        // Continue install even if a single CDN asset is temporarily unreachable
         return Promise.allSettled(STATIC_ASSETS.map(url => cache.add(url)));
       });
     }).then(() => self.skipWaiting())
@@ -59,23 +63,21 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // ⚠️ CRITICAL: Never intercept or cache Supabase API calls or WebSocket connections!
-  // Pass through directly to network to maintain Realtime sync & database integrity.
+  // Never intercept or cache Supabase API calls or WebSocket connections
   if (
     url.hostname.includes('supabase.co') ||
     url.protocol === 'wss:' ||
     url.protocol === 'ws:' ||
     req.headers.get('Upgrade') === 'websocket'
   ) {
-    return; // Browser default network handling
+    return;
   }
 
-  // Non-GET requests (POST, PUT, DELETE, etc.) pass straight through to network
   if (req.method !== 'GET') {
     return;
   }
 
-  // Network-First for main HTML page, falling back to cached index.html if offline
+  // Network-First for main HTML page
   if (req.mode === 'navigate' || url.pathname.endsWith('index.html') || url.pathname === '/') {
     event.respondWith(
       fetch(req)
@@ -94,7 +96,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Stale-While-Revalidate Strategy for static assets (CSS, JS, Fonts, Images)
+  // Stale-While-Revalidate Strategy for static assets
   event.respondWith(
     caches.match(req).then((cachedResponse) => {
       const fetchPromise = fetch(req)
@@ -105,17 +107,13 @@ self.addEventListener('fetch', (event) => {
           }
           return networkResponse;
         })
-        .catch((err) => {
-          // Silent catch for network failures when offline
-          return cachedResponse;
-        });
+        .catch(() => cachedResponse);
 
       return cachedResponse || fetchPromise;
     })
   );
 });
 
-// Listen for SKIP_WAITING message from app UI to trigger instant update
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
