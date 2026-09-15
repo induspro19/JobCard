@@ -126,6 +126,7 @@ function startLoginStatusClock(){
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -2737,12 +2738,52 @@ const STORAGE_HALFDAY      = "jobcard_halfday_v1";
 const STORAGE_HALFDAY_HRS  = "jobcard_halfday_hrs_v1";
 const STORAGE_WA_CONFIG    = "jobcard_wa_config_v1";
 const STORAGE_JOB_ALLOCATIONS = "jobcard_allocations_v1";
+const STORAGE_AUTH_SESSION    = "jobcard_auth_session_v1";
+
+function saveAuthSession(sessionData){
+  try{ localStorage.setItem(STORAGE_AUTH_SESSION, JSON.stringify(sessionData)); }catch(e){ console.warn('[JC] Failed to save auth session:', e); }
+}
+function getAuthSession(){
+  try{
+    const raw = localStorage.getItem(STORAGE_AUTH_SESSION);
+    return raw ? JSON.parse(raw) : null;
+  }catch(_){ return null; }
+}
+function clearAuthSession(){
+  try{ localStorage.removeItem(STORAGE_AUTH_SESSION); }catch(_){}
+}
+function restoreAuthSession(){
+  const sess = getAuthSession();
+  if(!sess || !sess.type) return false;
+  if(sess.type === 'admin'){
+    if(sess.password === getAdminPassword()){
+      adminLoggedIn = true;
+      currentMode = 'admin';
+      renderAdminDashboard();
+      return true;
+    }
+  } else if(sess.type === 'worker'){
+    const w = workers.find(x => x.name === sess.workerName && x.pin === sess.workerPin);
+    if(w){
+      loggedInWorker = w;
+      currentMode = 'worker';
+      renderWorkerDashboard();
+      return true;
+    }
+  }
+  return false;
+}
 
 function getAdminPassword(){
   return localStorage.getItem(STORAGE_ADMIN_PASS) || 'admin2025';
 }
 function setAdminPassword(newPass){
   localStorage.setItem(STORAGE_ADMIN_PASS, newPass);
+  const sess = getAuthSession();
+  if(sess && sess.type === 'admin'){
+    sess.password = newPass;
+    saveAuthSession(sess);
+  }
 }
 
 function getWAConfig(){ try{ return JSON.parse(localStorage.getItem(STORAGE_WA_CONFIG)||'{}'); }catch(_){ return {}; } }
@@ -2756,11 +2797,23 @@ let loggedInWorker = null;
 // ── LOGIN ALIASES FOR EXTENDED API COMPATIBILITY ──
 function doWorkerLogin(name, pin){
   const w = workers.find(x => x.name === name && x.pin === pin);
-  if(w){ loggedInWorker = w; currentMode = 'worker'; renderWorkerDashboard(); return true; }
+  if(w){
+    loggedInWorker = w;
+    currentMode = 'worker';
+    saveAuthSession({ type: 'worker', workerName: w.name, workerPin: w.pin, timestamp: Date.now() });
+    renderWorkerDashboard();
+    return true;
+  }
   showToast('Invalid credentials', 'error'); return false;
 }
 function doAdminLogin(pass){
-  if(pass === getAdminPassword()){ adminLoggedIn = true; currentMode = 'admin'; renderAdminDashboard(); return true; }
+  if(pass === getAdminPassword()){
+    adminLoggedIn = true;
+    currentMode = 'admin';
+    saveAuthSession({ type: 'admin', password: pass, timestamp: Date.now() });
+    renderAdminDashboard();
+    return true;
+  }
   showToast('Wrong password', 'error'); return false;
 }
 
@@ -3169,7 +3222,28 @@ function getWorkerDayLimit(workerName, date){
 }
 
 function getWorkerDailyHours(worker,date){ return jobEntries.filter(e=>e.workerName===worker&&e.date===date).reduce((s,e)=>s+(parseFloat(e.hours)||0),0); }
-function getRemainingHours(worker,date){ return Math.max(0, getWorkerDayLimit(worker,date) - getWorkerDailyHours(worker,date)); }
+
+function getWorkerSubmittedHours(workerName, date){
+  const d = date || getToday();
+  const approved = jobEntries.filter(e=>e.workerName===workerName && e.date===d).reduce((s,e)=>s+(parseFloat(e.hours)||0),0);
+  const pending  = pendingEntries.filter(e=>e.workerName===workerName && e.date===d && e.status==='pending').reduce((s,e)=>s+(parseFloat(e.hours)||0),0);
+  return {
+    approved: parseFloat(approved.toFixed(2)),
+    pending: parseFloat(pending.toFixed(2)),
+    total: parseFloat((approved + pending).toFixed(2))
+  };
+}
+
+function getRemainingHours(worker,date){
+  const d = date || getToday();
+  const isOT = isWorkerOTAllowed(worker, d);
+  const sub = getWorkerSubmittedHours(worker, d);
+  if(isOT){
+    return Math.max(0, parseFloat((24.0 - sub.total).toFixed(2)));
+  }
+  const base = getWorkerBaseLimit(worker, d);
+  return Math.max(0, parseFloat((base - sub.total).toFixed(2)));
+}
 
 async function addEntry(wn,proj,mainAct,subAct,hrs,date,detail){
   if(!wn||!proj||!mainAct||!hrs||hrs<=0) return false;
@@ -3831,6 +3905,662 @@ function getMonthlyOvertimeReport(targetMonth){
   };
 }
 
+window._workerOTSelectedMonth = null;
+
+function getWorkerMonthlyOTReport(workerName, targetMonth){
+  const now = new Date();
+  const ym = targetMonth || `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const workerObj = workers.find(w => w.name === workerName) || { name: workerName, pin: '', phone: '' };
+
+  const mEntries = jobEntries.filter(e => e.workerName === workerName && e.date && e.date.startsWith(ym));
+
+  // Group by date
+  const dateMap = {};
+  mEntries.forEach(e => {
+    if(!dateMap[e.date]) dateMap[e.date] = [];
+    dateMap[e.date].push(e);
+  });
+
+  const sortedDates = Object.keys(dateMap).sort().reverse();
+  const records = [];
+  let totalOTHours = 0;
+  let totalRegularHours = 0;
+  let totalAllHours = 0;
+  let otDaysCount = 0;
+
+  sortedDates.forEach(d => {
+    const dayEntries = dateMap[d];
+    const dayTotal = dayEntries.reduce((s, e) => s + (parseFloat(e.hours) || 0), 0);
+    const baseLimit = typeof getWorkerBaseLimit === 'function' ? getWorkerBaseLimit(workerName, d) : 7.5;
+    const isSunday = typeof getSundayMap === 'function' ? (getSundayMap()[d]?.[workerName] || false) : false;
+
+    let dayReg = 0;
+    let dayOT = 0;
+    if(dayTotal <= baseLimit){
+      dayReg = dayTotal;
+      dayOT = 0;
+    } else {
+      dayReg = baseLimit;
+      dayOT = Math.max(0, parseFloat((dayTotal - baseLimit).toFixed(2)));
+    }
+
+    const projSet = new Set();
+    const actSet = new Set();
+    const subSet = new Set();
+    const remarks = [];
+
+    if(isSunday){
+      // All entries on Sunday are Overtime
+      dayEntries.forEach(e => {
+        if(e.projectName) projSet.add(e.projectName);
+        if(e.activity) actSet.add(e.activity);
+        if(e.subActivity && e.subActivity.trim() && e.subActivity !== '—') subSet.add(e.subActivity.trim());
+        if(e.detailReason && e.detailReason.trim()) remarks.push(e.detailReason.trim());
+      });
+    } else if(dayOT > 0){
+      // Normal day with Overtime:
+      // Track chronological accumulation to isolate only the entry/entries where extra hours were worked (> baseLimit)
+      let cumHours = 0;
+      dayEntries.forEach(e => {
+        const h = parseFloat(e.hours) || 0;
+        const endH = cumHours + h;
+        cumHours = endH;
+
+        // If this entry touches the extra hours (> baseLimit)
+        if(endH > baseLimit){
+          if(e.projectName) projSet.add(e.projectName);
+          if(e.activity) actSet.add(e.activity);
+          if(e.subActivity && e.subActivity.trim() && e.subActivity !== '—') subSet.add(e.subActivity.trim());
+          if(e.detailReason && e.detailReason.trim()) remarks.push(e.detailReason.trim());
+        }
+      });
+
+      // Fallback: if projSet is empty, take the last entry
+      if(projSet.size === 0 && dayEntries.length > 0){
+        const lastEntry = dayEntries[dayEntries.length - 1];
+        if(lastEntry.projectName) projSet.add(lastEntry.projectName);
+        if(lastEntry.activity) actSet.add(lastEntry.activity);
+      }
+    }
+
+    totalAllHours += dayTotal;
+    totalRegularHours += dayReg;
+    totalOTHours += dayOT;
+
+    if(dayOT > 0 || isSunday){
+      otDaysCount++;
+      let dayName = '';
+      try {
+        const [y, m, dt] = d.split('-').map(Number);
+        dayName = new Date(y, m - 1, dt).toLocaleDateString('en-US', { weekday: 'short' });
+      } catch(_e){ dayName = ''; }
+
+      records.push({
+        date: d,
+        dayOfWeek: dayName,
+        projects: Array.from(projSet),
+        activities: Array.from(actSet),
+        subActivities: Array.from(subSet),
+        regularHours: parseFloat(dayReg.toFixed(2)),
+        otHours: parseFloat(dayOT.toFixed(2)),
+        totalHours: parseFloat(dayTotal.toFixed(2)),
+        remarks: remarks.join('; ') || '—',
+        isSunday
+      });
+    }
+  });
+
+  let formattedMonth = ym;
+  try {
+    const [yr, mo] = ym.split('-').map(Number);
+    formattedMonth = new Date(yr, mo - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  } catch(_e){}
+
+  return {
+    workerName,
+    workerPhone: workerObj.phone || '',
+    workerPin: workerObj.pin || '',
+    yearMonth: ym,
+    formattedMonth,
+    totalOTHours: parseFloat(totalOTHours.toFixed(2)),
+    totalOTDays: otDaysCount,
+    totalRegularHours: parseFloat(totalRegularHours.toFixed(2)),
+    totalAllHours: parseFloat(totalAllHours.toFixed(2)),
+    records
+  };
+}
+
+window.getWorkerMonthlyOTReport = getWorkerMonthlyOTReport;
+
+window.changeWorkerOTMonth = function(newMonth){
+  if(newMonth){
+    window._workerOTSelectedMonth = newMonth;
+    renderWorkerDashboard();
+  }
+};
+
+window.navWorkerOTMonth = function(delta){
+  let ym = window._workerOTSelectedMonth || getToday().substring(0, 7);
+  let [yr, mo] = ym.split('-').map(Number);
+  mo += delta;
+  if(mo > 12){ mo = 1; yr++; }
+  else if(mo < 1){ mo = 12; yr--; }
+  window._workerOTSelectedMonth = `${yr}-${String(mo).padStart(2, '0')}`;
+  renderWorkerDashboard();
+};
+
+window.downloadWorkerOTPDF = function(workerName, yearMonth){
+  const rep = getWorkerMonthlyOTReport(workerName, yearMonth);
+  if(!rep.records.length){
+    showToast(`No overtime records found for ${rep.formattedMonth}`, 'warning');
+    return;
+  }
+
+  const now = new Date();
+  const genDate = now.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
+
+  const printDoc = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>OT Statement - ${escapeHtml(rep.workerName)} - ${escapeHtml(rep.yearMonth)}</title>
+      <style>
+        @page {
+          size: A4 portrait;
+          margin: 10mm;
+        }
+        * {
+          box-sizing: border-box !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        body {
+          font-family: Arial, Helvetica, sans-serif;
+          font-size: 11px;
+          color: #000000;
+          background-color: #FFFFFF;
+          margin: 0;
+          padding: 10px;
+          line-height: 1.4;
+        }
+        .main-box {
+          border: 2px solid #000000;
+          padding: 20px 24px;
+          background: #FFFFFF;
+          min-height: 260mm;
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+        }
+        .top-header {
+          text-align: center;
+          border-bottom: 2px solid #000000;
+          padding-bottom: 12px;
+          margin-bottom: 16px;
+        }
+        .company-name {
+          font-size: 18px;
+          font-weight: bold;
+          letter-spacing: 0.5px;
+          color: #000000;
+          margin-bottom: 4px;
+        }
+        .company-tagline {
+          font-size: 9.5px;
+          color: #444444;
+          margin-bottom: 8px;
+        }
+        .statement-title {
+          font-size: 13px;
+          font-weight: bold;
+          text-transform: uppercase;
+          color: #D9480F;
+          background: #FFF4E6;
+          display: inline-block;
+          padding: 4px 16px;
+          border: 1px solid #FF922B;
+          border-radius: 4px;
+        }
+        .info-table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 18px;
+          background-color: #F8F9FA;
+          border: 1px solid #CCCCCC;
+        }
+        .info-table td {
+          padding: 8px 12px;
+          border: 1px solid #DDDDDD;
+          font-size: 11px;
+          color: #000000;
+          width: 25%;
+        }
+        .info-label {
+          font-size: 9px;
+          color: #555555;
+          text-transform: uppercase;
+          font-weight: bold;
+          margin-bottom: 2px;
+        }
+        .info-val {
+          font-size: 12px;
+          font-weight: bold;
+          color: #000000;
+        }
+        .info-val.highlight {
+          color: #D9480F;
+          font-size: 14px;
+        }
+        .records-table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 20px;
+          font-size: 10.5px;
+        }
+        .records-table th {
+          background-color: #212529;
+          color: #FFFFFF;
+          font-weight: bold;
+          text-align: left;
+          padding: 8px 10px;
+          border: 1px solid #212529;
+          font-size: 9.5px;
+          text-transform: uppercase;
+        }
+        .records-table td {
+          padding: 8px 10px;
+          border: 1px solid #CCCCCC;
+          color: #000000;
+          background-color: #FFFFFF;
+          vertical-align: top;
+        }
+        .records-table tr:nth-child(even) td {
+          background-color: #F9FAFB;
+        }
+        .records-table tfoot td {
+          background-color: #212529;
+          color: #FFFFFF;
+          font-weight: bold;
+          padding: 8px 10px;
+          border: 1px solid #212529;
+        }
+        .ot-pill {
+          display: inline-block;
+          background-color: #FFE8CC;
+          color: #D9480F;
+          font-weight: bold;
+          padding: 2px 8px;
+          border-radius: 4px;
+          border: 1px solid #FFA94D;
+          font-size: 10.5px;
+        }
+        .note-text {
+          font-size: 8.5px;
+          color: #555555;
+          margin-bottom: 24px;
+          line-height: 1.4;
+          border-left: 3px solid #D9480F;
+          padding-left: 8px;
+        }
+        .signature-row {
+          width: 100%;
+          margin-top: 30px;
+          margin-bottom: 10px;
+          border-collapse: collapse;
+        }
+        .signature-row td {
+          width: 50%;
+          padding: 0 20px;
+          vertical-align: bottom;
+        }
+        .signature-line {
+          border-top: 1.5px solid #000000;
+          padding-top: 6px;
+          text-align: center;
+          font-size: 10px;
+          font-weight: bold;
+          color: #000000;
+          text-transform: uppercase;
+        }
+        .footer-line {
+          border-top: 1px solid #DDDDDD;
+          padding-top: 6px;
+          margin-top: 15px;
+          font-size: 8px;
+          color: #777777;
+          display: flex;
+          justify-content: space-between;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="main-box">
+        <div>
+          <!-- Header -->
+          <div class="top-header">
+            <div class="company-name">INDUS FIRE SAFETY PVT LTD</div>
+            <div class="company-tagline">Industrial Fire Protection &amp; Workforce Deployment</div>
+            <div class="statement-title">Monthly Overtime (OT) Statement</div>
+          </div>
+
+          <!-- Summary Info Strip -->
+          <table class="info-table">
+            <tr>
+              <td>
+                <div class="info-label">Worker Name</div>
+                <div class="info-val">${escapeHtml(rep.workerName)}</div>
+              </td>
+              <td>
+                <div class="info-label">Statement Month</div>
+                <div class="info-val">${escapeHtml(rep.formattedMonth)}</div>
+              </td>
+              <td>
+                <div class="info-label">Total Overtime (OT)</div>
+                <div class="info-val highlight">+${rep.totalOTHours.toFixed(1)} Hours</div>
+              </td>
+              <td>
+                <div class="info-label">OT Days Worked</div>
+                <div class="info-val">${rep.totalOTDays} Days</div>
+              </td>
+            </tr>
+          </table>
+
+          <!-- Punch Breakdown Table -->
+          <table class="records-table">
+            <thead>
+              <tr>
+                <th style="width:14%;">Date</th>
+                <th style="width:28%;">OT Project Site(s)</th>
+                <th style="width:28%;">OT Activities Done</th>
+                <th style="width:10%;text-align:right;">Regular (7.5h)</th>
+                <th style="width:10%;text-align:right;">Extra OT</th>
+                <th style="width:10%;text-align:right;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rep.records.map(r => `
+                <tr>
+                  <td>
+                    <b>${r.date}</b>
+                    <div style="font-size:8px;color:#666666;">${r.dayOfWeek}${r.isSunday ? ' &bull; Sunday OT' : ''}</div>
+                  </td>
+                  <td>
+                    <b style="color:#0B7285;">${r.projects.map(p => escapeHtml(p)).join(', ')}</b>
+                  </td>
+                  <td>
+                    <div>${r.activities.map(a => escapeHtml(a)).join(', ')}</div>
+                    ${r.subActivities && r.subActivities.length > 0 ? `<div style="font-size:8px;color:#666666;margin-top:2px;">${r.subActivities.map(s => escapeHtml(s)).join(', ')}</div>` : ''}
+                  </td>
+                  <td style="text-align:right;color:#444444;font-weight:bold;">
+                    ${r.regularHours.toFixed(1)}h
+                  </td>
+                  <td style="text-align:right;">
+                    <span class="ot-pill">+${r.otHours.toFixed(1)}h</span>
+                  </td>
+                  <td style="text-align:right;font-weight:bold;color:#000000;">
+                    ${r.totalHours.toFixed(1)}h
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="3" style="text-align:left;">TOTAL MONTHLY HOURS</td>
+                <td style="text-align:right;">${rep.totalRegularHours.toFixed(1)}h</td>
+                <td style="text-align:right;color:#FF922B;font-size:11.5px;">+${rep.totalOTHours.toFixed(1)}h</td>
+                <td style="text-align:right;color:#FFFFFF;font-size:11.5px;">${rep.totalAllHours.toFixed(1)}h</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <div class="note-text">
+            <b>Note:</b> Standard daily shift quota is 7.5 hours. Extra hours above standard shift represent approved overtime work.
+          </div>
+        </div>
+
+        <div>
+          <!-- Signatures -->
+          <table class="signature-row">
+            <tr>
+              <td>
+                <div style="height:35px;"></div>
+                <div class="signature-line">Worker Signature (${escapeHtml(rep.workerName)})</div>
+              </td>
+              <td>
+                <div style="height:35px;"></div>
+                <div class="signature-line">Authorized Signatory / Supervisor</div>
+              </td>
+            </tr>
+          </table>
+
+          <!-- Footer -->
+          <div class="footer-line">
+            <div>Indus Job Card Management System</div>
+            <div>Generated: ${genDate} &bull; Page 1 of 1</div>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  // Provide immediate native print / PDF save
+  window.openPrintWindowForOT(printDoc);
+};
+
+window.openPrintWindowForOT = function(printDoc){
+  const printWin = window.open('', '_blank');
+  if(printWin){
+    printWin.document.open();
+    printWin.document.write(printDoc);
+    printWin.document.close();
+    setTimeout(() => {
+      printWin.focus();
+      printWin.print();
+    }, 500);
+  } else {
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(printDoc);
+    doc.close();
+    setTimeout(() => {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+      setTimeout(() => document.body.removeChild(iframe), 2000);
+    }, 500);
+  }
+};
+
+window.downloadWorkerOTExcel = function(workerName, yearMonth){
+  const rep = getWorkerMonthlyOTReport(workerName, yearMonth);
+  if(!rep.records.length){
+    showToast(`No overtime records found for ${rep.formattedMonth}`, 'warning');
+    return;
+  }
+
+  const wb = XLSX.utils.book_new();
+  const rows = [];
+  rows.push(["INDUS FIRE SAFETY PVT LTD - MONTHLY OVERTIME STATEMENT"]);
+  rows.push([`Worker Name: ${rep.workerName}`, `Month: ${rep.formattedMonth}`, `Generated: ${new Date().toLocaleDateString()}`]);
+  rows.push([]);
+  rows.push(["TOTAL OVERTIME HOURS", `${rep.totalOTHours.toFixed(1)} hrs`, "OT DAYS", `${rep.totalOTDays} days`]);
+  rows.push(["REGULAR SHIFT HOURS", `${rep.totalRegularHours.toFixed(1)} hrs`, "TOTAL COMBINED", `${rep.totalAllHours.toFixed(1)} hrs`]);
+  rows.push([]);
+  rows.push(["Date", "Day", "OT Project Site(s)", "OT Activities Logged", "Regular Shift (7.5h)", "OT Hours (>7.5h)", "Total Day Hours", "Remarks"]);
+
+  rep.records.forEach(r => {
+    rows.push([
+      r.date,
+      r.dayOfWeek,
+      r.projects.join(', '),
+      r.activities.join(', '),
+      r.regularHours,
+      r.otHours,
+      r.totalHours,
+      r.remarks
+    ]);
+  });
+
+  rows.push([]);
+  rows.push(["TOTAL", "", "", "", rep.totalRegularHours, rep.totalOTHours, rep.totalAllHours, ""]);
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:12}, {wch:8}, {wch:28}, {wch:28}, {wch:18}, {wch:18}, {wch:18}, {wch:24}];
+  XLSX.utils.book_append_sheet(wb, ws, "Overtime Statement");
+  XLSX.writeFile(wb, `OT_Statement_${rep.workerName.replace(/\\s+/g,'_')}_${rep.yearMonth}.xlsx`);
+  showToast(`Downloaded OT Statement for ${rep.workerName}`, 'success');
+};
+
+function buildWorkerOTListTab(workerName){
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const ym = window._workerOTSelectedMonth || currentMonth;
+  const rep = getWorkerMonthlyOTReport(workerName, ym);
+
+  return `
+    <div class="panel fade-up">
+      <div class="panel-header" style="flex-wrap:wrap;gap:10px;">
+        <div class="panel-title"><i class="fas fa-business-time" style="color:var(--fire);"></i>My Overtime (OT) Statement</div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-ghost btn-xs" onclick="window.navWorkerOTMonth(-1)" title="Previous Month"><i class="fas fa-chevron-left"></i></button>
+          <input type="month" id="workerOTMonthPicker" class="inp" value="${ym}" onchange="window.changeWorkerOTMonth(this.value)" style="max-width:140px;font-size:0.75rem;padding:4px 8px;height:28px;">
+          <button type="button" class="btn btn-ghost btn-xs" onclick="window.navWorkerOTMonth(1)" title="Next Month"><i class="fas fa-chevron-right"></i></button>
+          <button type="button" class="btn btn-ghost btn-xs" onclick="window.changeWorkerOTMonth('${currentMonth}')" style="font-size:0.62rem;padding:3px 7px;">Current</button>
+        </div>
+      </div>
+
+      <div class="panel-body">
+        <!-- Top 4 KPIs -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px;">
+          <div style="background:var(--fire-soft);border:1.5px solid rgba(255,69,0,0.3);border-radius:12px;padding:12px 14px;">
+            <div style="font-size:0.62rem;font-weight:700;color:var(--fire);text-transform:uppercase;letter-spacing:0.4px;">Total OT Hours</div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-size:1.4rem;font-weight:800;color:var(--fire);margin-top:2px;">
+              ${rep.totalOTHours.toFixed(1)}h
+            </div>
+            <div style="font-size:0.62rem;color:var(--text-3);margin-top:2px;">Above 7.5h shift quota</div>
+          </div>
+
+          <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;padding:12px 14px;">
+            <div style="font-size:0.62rem;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:0.4px;">OT Days Worked</div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-size:1.4rem;font-weight:700;color:var(--text-1);margin-top:2px;">
+              ${rep.totalOTDays} <span style="font-size:0.8rem;font-weight:500;color:var(--text-3);">days</span>
+            </div>
+            <div style="font-size:0.62rem;color:var(--text-3);margin-top:2px;">In ${rep.formattedMonth}</div>
+          </div>
+
+          <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;padding:12px 14px;">
+            <div style="font-size:0.62rem;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:0.4px;">Regular Shift Hrs</div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-size:1.4rem;font-weight:700;color:var(--text-1);margin-top:2px;">
+              ${rep.totalRegularHours.toFixed(1)}h
+            </div>
+            <div style="font-size:0.62rem;color:var(--text-3);margin-top:2px;">Base 7.5h standard</div>
+          </div>
+
+          <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;padding:12px 14px;">
+            <div style="font-size:0.62rem;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:0.4px;">Total Combined</div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-size:1.4rem;font-weight:700;color:var(--text-1);margin-top:2px;">
+              ${rep.totalAllHours.toFixed(1)}h
+            </div>
+            <div style="font-size:0.62rem;color:var(--text-3);margin-top:2px;">Regular + Overtime</div>
+          </div>
+        </div>
+
+        <!-- Action Bar -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;background:var(--bg-elevated);padding:10px 14px;border-radius:10px;border:1px solid var(--border);">
+          <div style="font-size:0.72rem;font-weight:600;color:var(--text-2);">
+            <i class="fas fa-file-invoice" style="color:var(--fire);margin-right:5px;"></i>
+            Statement for: <b>${escapeHtml(rep.formattedMonth)}</b> (${rep.records.length} OT Records)
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button type="button" class="btn btn-fire btn-xs" onclick="window.downloadWorkerOTPDF('${escapeHtml(workerName).replace(/'/g, "\\'")}', '${ym}')" style="padding:6px 12px;font-size:0.70rem;box-shadow:0 2px 8px rgba(255,69,0,0.25);">
+              <i class="fas fa-file-pdf"></i> Download PDF
+            </button>
+            <button type="button" class="btn btn-green btn-xs" onclick="window.downloadWorkerOTExcel('${escapeHtml(workerName).replace(/'/g, "\\'")}', '${ym}')" style="padding:6px 12px;font-size:0.70rem;">
+              <i class="fas fa-file-excel"></i> Export Excel
+            </button>
+          </div>
+        </div>
+
+        <!-- Table -->
+        ${rep.records.length > 0 ? `
+          <div class="tbl-scroll">
+            <table class="pro-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>OT Project Site(s)</th>
+                  <th>OT Activities Logged</th>
+                  <th style="text-align:right;">Regular Shift (7.5h)</th>
+                  <th style="text-align:right;">OT Hours (&gt;7.5h)</th>
+                  <th style="text-align:right;">Total Day Hours</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rep.records.map(r => `
+                  <tr>
+                    <td>
+                      <div style="font-weight:700;color:var(--text-1);">${r.date}</div>
+                      <div style="font-size:0.62rem;color:var(--text-3);">${r.dayOfWeek}${r.isSunday ? ' · <span style="color:var(--gold);font-weight:700;">Sunday OT</span>' : ''}</div>
+                    </td>
+                    <td>
+                      <div style="font-weight:600;color:var(--blue);font-size:0.75rem;">${r.projects.map(p => escapeHtml(p)).join(', ')}</div>
+                    </td>
+                    <td>
+                      <div style="color:var(--text-1);font-size:0.72rem;">${r.activities.map(a => escapeHtml(a)).join(', ')}</div>
+                      ${r.subActivities && r.subActivities.length > 0 ? `<div style="font-size:0.62rem;color:var(--text-3);margin-top:2px;">${r.subActivities.map(s => escapeHtml(s)).join(', ')}</div>` : ''}
+                    </td>
+                    <td style="text-align:right;color:var(--text-2);font-weight:500;">
+                      ${r.regularHours.toFixed(1)}h
+                    </td>
+                    <td style="text-align:right;">
+                      <span class="chip chip-fire" style="font-size:0.70rem;font-weight:700;padding:3px 8px;">
+                        +${r.otHours.toFixed(1)}h OT
+                      </span>
+                    </td>
+                    <td style="text-align:right;font-weight:700;color:var(--text-1);">
+                      ${r.totalHours.toFixed(1)}h
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+              <tfoot>
+                <tr style="background:var(--bg-elevated);font-weight:700;">
+                  <td colspan="3" style="color:var(--text-1);">Total Overtime (${rep.formattedMonth})</td>
+                  <td style="text-align:right;color:var(--text-2);">${rep.totalRegularHours.toFixed(1)}h</td>
+                  <td style="text-align:right;color:var(--fire);font-size:0.85rem;">+${rep.totalOTHours.toFixed(1)}h OT</td>
+                  <td style="text-align:right;color:var(--text-1);font-size:0.85rem;">${rep.totalAllHours.toFixed(1)}h</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        ` : `
+          <div class="empty-state" style="padding:36px;text-align:center;">
+            <div style="width:48px;height:48px;border-radius:50%;background:rgba(255,69,0,0.08);color:var(--fire);display:flex;align-items:center;justify-content:center;font-size:1.3rem;margin:0 auto 10px;">
+              <i class="fas fa-business-time"></i>
+            </div>
+            <div style="font-weight:700;color:var(--text-1);font-size:0.90rem;">No Overtime Recorded in ${rep.formattedMonth}</div>
+            <div style="font-size:0.72rem;color:var(--text-3);max-width:320px;margin:4px auto 0;line-height:1.4;">
+              You have not worked extra hours beyond the standard 7.5h daily shift in this month.
+            </div>
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+window.buildWorkerOTListTab = buildWorkerOTListTab;
+
 function renderOTBreakdownWidgetContent(targetMonth){
   const rep = getMonthlyOvertimeReport(targetMonth);
   const isAll = rep.activeMonth === 'all';
@@ -4388,12 +5118,14 @@ function renderWorkerLogin(){
       </div>
     </div>`;
 
-  document.getElementById('workerLoginBtn')?.addEventListener('click',()=>{
-    const name = document.getElementById('workerNameSelect').value;
-    const pin  = document.getElementById('workerPinInput').value;
-    const worker = workers.find(w=>w.name===name&&w.pin===pin);
-    if(worker){ loggedInWorker=worker; currentMode='worker'; renderWorkerDashboard(); }
-    else showToast('Invalid credentials','error');
+  const handleWorkerLoginSubmit = ()=>{
+    const name = document.getElementById('workerNameSelect')?.value || '';
+    const pin  = document.getElementById('workerPinInput')?.value || '';
+    doWorkerLogin(name, pin);
+  };
+  document.getElementById('workerLoginBtn')?.addEventListener('click', handleWorkerLoginSubmit);
+  document.getElementById('workerPinInput')?.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter') handleWorkerLoginSubmit();
   });
   document.getElementById('switchToAdminLoginBtn')?.addEventListener('click',()=>{ currentMode='admin'; renderAdminLogin(); });
 }
@@ -4532,10 +5264,13 @@ function renderAdminLogin(){
       </div>
     </div>`;
 
-  document.getElementById('adminLoginBtn')?.addEventListener('click',()=>{
-    if(document.getElementById('adminPassInput').value===getAdminPassword()){
-      adminLoggedIn=true; currentMode='admin'; renderAdminDashboard();
-    } else showToast('Wrong password','error');
+  const handleAdminLoginSubmit = ()=>{
+    const pass = document.getElementById('adminPassInput')?.value || '';
+    doAdminLogin(pass);
+  };
+  document.getElementById('adminLoginBtn')?.addEventListener('click', handleAdminLoginSubmit);
+  document.getElementById('adminPassInput')?.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter') handleAdminLoginSubmit();
   });
   document.getElementById('switchToWorkerLoginBtn')?.addEventListener('click',()=>{ currentMode='worker'; renderWorkerLogin(); });
 }
@@ -7669,8 +8404,16 @@ function attachChangeAdminPassEvents(){
   });
 }
 
-function doAdminLogout(){ document.body.classList.remove('admin-light-theme'); document.body.classList.remove('sidebar-collapsed'); adminLoggedIn=false; currentMode='worker'; renderWorkerLogin(); }
+function doAdminLogout(){
+  clearAuthSession();
+  document.body.classList.remove('admin-light-theme');
+  document.body.classList.remove('sidebar-collapsed');
+  adminLoggedIn=false;
+  currentMode='worker';
+  renderWorkerLogin();
+}
 function doWorkerLogout(){
+  clearAuthSession();
   loggedInWorker  = null;
   _workerTab      = 'log';
   _workerDraftRows = null;  // clear memory draft
@@ -7696,13 +8439,17 @@ function renderWorkerDashboard(){
   if(!loggedInWorker){ renderWorkerLogin(); return; }
   const worker = loggedInWorker;
   const today  = getToday();
-  const booked    = getWorkerDailyHours(worker.name, today);
+  const submitted = getWorkerSubmittedHours(worker.name, today);
+  const booked    = submitted.approved;
+  const pendingHrs = submitted.pending;
+  const totalSubmitted = submitted.total;
   const baseLimit = getWorkerBaseLimit(worker.name, today);
   const isOT      = isWorkerOTAllowed(worker.name, today);
   const dayLimit  = getWorkerDayLimit(worker.name, today);
   const remaining = getRemainingHours(worker.name, today);
   const isHalfDay = getHalfDayMap()[today]?.[worker.name] || false;
-  const pct = Math.min(100,(booked/baseLimit)*100);
+  const isShiftComplete = !isOT && totalSubmitted >= (baseLimit - 0.001);
+  const pct = Math.min(100, Math.round((totalSubmitted / baseLimit) * 100));
   const activeProjectsList = getActiveProjects().map(p=>p.name);
   const attMap    = getAttendanceMap()[today] || {};
   const isPresent = attMap[worker.name] === true;
@@ -7725,14 +8472,14 @@ if (_workerDraftKey !== _draftKey) {
 }
 
 if (!_workerDraftRows || _workerDraftRows.length === 0) {
-  // No saved draft exists → create a default first row
+  // No saved draft exists → create a default first row based on remaining shift hours
   let initHours = 7.5;
   if (isHalfDay) {
-    initHours = baseLimit;
-  } else if (booked >= baseLimit && isOT) {
+    initHours = Math.max(0.5, parseFloat((baseLimit - totalSubmitted).toFixed(2)));
+  } else if (totalSubmitted >= baseLimit && isOT) {
     initHours = 2.0; // pre-fill minimum 2h OT
-  } else if (booked < baseLimit) {
-    initHours = Math.max(0.5, parseFloat((baseLimit - booked).toFixed(2)));
+  } else if (totalSubmitted < baseLimit) {
+    initHours = Math.max(0.5, parseFloat((baseLimit - totalSubmitted).toFixed(2)));
   } else {
     initHours = 0.5;
   }
@@ -7758,7 +8505,7 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
   function getSubList(mainAct,proj){
     const acts = getRowActivities(proj);
     const act  = acts.find(a=>a.name===mainAct);
-    return act ? act.subActivities : [];
+    return (act && act.subActivities) ? act.subActivities : [];
   }
 
   function refreshRowsUI(){
@@ -7844,44 +8591,58 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
     container.innerHTML = html;
 
     rows.forEach((row,idx)=>{
-      const ph = document.getElementById(`hourStepper-${idx}`);
-      if(ph){
+      const stepperEl = document.getElementById(`hourStepper-${idx}`);
+      if(stepperEl){
         const st = createHourStepper(row.hours||0.5, val=>{ rows[idx].hours=val; updateTotals(); _saveDraftToStorage(); });
-        ph.innerHTML = ''; ph.appendChild(st);
+        stepperEl.replaceWith(st);
       }
     });
 
-    document.querySelectorAll('.sub-pill-btn').forEach(btn=>btn.addEventListener('click',()=>{
-      const idx = parseInt(btn.dataset.rowidx);
-      const s   = btn.dataset.sub;
-      const row = rows[idx];
-      if(row.subActs.includes(s)) row.subActs = row.subActs.filter(x=>x!==s);
-      else row.subActs = [...row.subActs, s];
-      refreshRowsUI(); updateTotals(); _saveDraftToStorage();
-    }));
+    container.querySelectorAll('.sub-pill-btn').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const rIdx = parseInt(btn.dataset.rowidx);
+        const sub  = btn.dataset.sub;
+        if(!rows[rIdx].subActs) rows[rIdx].subActs = [];
+        const pos = rows[rIdx].subActs.indexOf(sub);
+        if(pos===-1) rows[rIdx].subActs.push(sub);
+        else rows[rIdx].subActs.splice(pos,1);
+        refreshRowsUI(); updateTotals(); _saveDraftToStorage();
+      });
+    });
 
-    document.querySelectorAll('.removeRowBtn').forEach(btn=>btn.addEventListener('click',()=>{
-      const idx = parseInt(btn.dataset.idx);
-      if(rows.length>1){ rows.splice(idx,1); refreshRowsUI(); updateTotals(); _saveDraftToStorage(); }
-      else showToast('At least one entry needed','error');
-    }));
+    container.querySelectorAll('.removeRowBtn').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const idx = parseInt(btn.dataset.idx);
+        if(rows.length>1){ rows.splice(idx,1); refreshRowsUI(); updateTotals(); _saveDraftToStorage(); }
+        else showToast('Must have at least one entry','error');
+      });
+    });
 
-    document.querySelectorAll('.row-project').forEach(el=>el.addEventListener('change',e=>{
-      const idx = parseInt(e.target.dataset.idx);
-      rows[idx].project = e.target.value; rows[idx].mainAct=''; rows[idx].subActs=[];
-      refreshRowsUI(); updateTotals(); _saveDraftToStorage();
-    }));
-    document.querySelectorAll('.row-mainAct').forEach(el=>el.addEventListener('change',e=>{
-      const idx = parseInt(e.target.dataset.idx);
-      rows[idx].mainAct = e.target.value; rows[idx].subActs=[];
-      refreshRowsUI(); updateTotals(); _saveDraftToStorage();
-    }));
+    container.querySelectorAll('.row-project').forEach(sel=>{
+      sel.addEventListener('change',e=>{
+        const idx = parseInt(e.target.dataset.idx);
+        rows[idx].project = e.target.value;
+        rows[idx].mainAct = '';
+        rows[idx].subActs = [];
+        refreshRowsUI(); updateTotals(); _saveDraftToStorage();
+      });
+    });
+
+    container.querySelectorAll('.row-mainAct').forEach(sel=>{
+      sel.addEventListener('change',e=>{
+        const idx = parseInt(e.target.dataset.idx);
+        rows[idx].mainAct = e.target.value;
+        rows[idx].subActs = [];
+        refreshRowsUI(); updateTotals(); _saveDraftToStorage();
+      });
+    });
+
     document.querySelectorAll('.row-detail').forEach(el=>el.addEventListener('input',e=>{
       const idx = parseInt(e.target.dataset.idx);
       rows[idx].detail = e.target.value; _saveDraftToStorage();
     }));
     document.getElementById('addRowBtn')?.addEventListener('click',()=>{
-      const defaultAddHrs = (booked >= baseLimit && isOT) ? 2.0 : 0.5;
+      const defaultAddHrs = (totalSubmitted >= baseLimit && isOT) ? 2.0 : 0.5;
       rows.push({project:'',mainAct:'',subActs:[],hours:defaultAddHrs,detail:''});
       refreshRowsUI(); updateTotals(); _saveDraftToStorage();
     });
@@ -7890,7 +8651,7 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
   const updateTotals = ()=>{
     const total = rows.reduce((s,r)=>s+(r.hours||0),0);
     const avail = getRemainingHours(worker.name, today);
-    const totalDay = booked + total;
+    const totalDay = totalSubmitted + total;
     const allValid = rows.every(r=>{
       if(!r.project||!r.mainAct||r.hours<=0) return false;
       const subList = getSubList(r.mainAct, r.project);
@@ -7901,10 +8662,11 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
     let otWarning = '';
     let isOtInvalid = false;
 
-    if(totalDay > baseLimit){
+    if(totalDay > (baseLimit + 0.001)){
       if(!isOT){
         isOtInvalid = true;
-        otWarning = `Exceeds regular shift limit (${baseLimit.toFixed(1)}h). OT approval required from Admin.`;
+        const rem = Math.max(0, baseLimit - totalSubmitted);
+        otWarning = `Exceeds regular shift limit (${baseLimit.toFixed(1)}h). Only ${rem.toFixed(1)}h remaining today. OT approval required from Admin.`;
       } else {
         const otHours = totalDay - baseLimit;
         if(otHours < 1.999){
@@ -7933,10 +8695,10 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
     }
 
     if(btn){
-      btn.disabled = (!allValid || total===0 || total>avail || !isPresent || isOtInvalid);
+      btn.disabled = (!allValid || total===0 || total>avail || !isPresent || isOtInvalid || isShiftComplete);
     }
     const bar = document.getElementById('hoursProgressBar');
-    if(bar) bar.style.width = Math.min(100,((booked+total)/baseLimit)*100)+'%';
+    if(bar) bar.style.width = Math.min(100,((totalSubmitted+total)/baseLimit)*100)+'%';
   };
 
   function createHourStepper(initial, onChange){
@@ -7975,12 +8737,12 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
     return `<table class="pro-table">
       <thead><tr><th>Worker</th><th>Today</th><th>Total</th></tr></thead>
       <tbody>${workers.map(w=>{
-        const todayH = getWorkerDailyHours(w.name,today);
+        const subW = getWorkerSubmittedHours(w.name, today);
         const totalH = jobEntries.filter(e=>e.workerName===w.name).reduce((s,e)=>s+(e.hours||0),0);
         const isMe = w.name===worker.name;
         return `<tr style="${isMe?'background:var(--fire-soft);':''}">
           <td><span style="${isMe?'color:var(--fire);font-weight:700;':''}">${escapeHtml(w.name)}${isMe?' <span style="font-size:0.62rem;">(you)</span>':''}</span></td>
-          <td><span class="chip chip-fire" style="font-size:0.65rem;">${todayH.toFixed(1)}h</span></td>
+          <td><span class="chip chip-fire" style="font-size:0.65rem;">${subW.total.toFixed(1)}h</span></td>
           <td><span class="chip chip-gold" style="font-size:0.65rem;">${totalH.toFixed(1)}h</span></td>
         </tr>`;
       }).join('')}</tbody>
@@ -7998,13 +8760,14 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
           <div>
             <div style="font-size:0.65rem;color:var(--text-3);font-weight:700;letter-spacing:0.08em;margin-bottom:4px;">DAILY HOURS FILL — ${today}</div>
             <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;">
-              <span style="font-family:'Space Grotesk',sans-serif;font-size:1.6rem;font-weight:700;color:${pctColor};">${booked.toFixed(1)}</span>
+              <span style="font-family:'Space Grotesk',sans-serif;font-size:1.6rem;font-weight:700;color:${pctColor};">${totalSubmitted.toFixed(1)}</span>
               <span style="font-size:0.8rem;color:var(--text-3);">/ ${baseLimit.toFixed(1)}h
                 ${isHalfDay?'<span class=\'chip chip-gold\' style=\'font-size:0.6rem;padding:2px 8px;vertical-align:middle;\'><i class=\'fas fa-circle-half-stroke\'></i> Half Day</span>':''}
                 ${isOT?'<span class=\'chip chip-fire\' style=\'font-size:0.6rem;padding:2px 8px;vertical-align:middle;\'><i class=\'fas fa-bolt\'></i> OT Approved (Min 2h)</span>':''}
+                ${isShiftComplete?'<span class=\'chip chip-green\' style=\'font-size:0.6rem;padding:2px 8px;vertical-align:middle;\'><i class=\'fas fa-check-circle\'></i> Shift Complete</span>':''}
               </span>
               <span style="font-size:0.72rem;color:var(--text-2);margin-left:6px;">
-                ${isOT && booked > baseLimit ? `(+${(booked - baseLimit).toFixed(1)}h OT logged)` : `(${Math.max(0, baseLimit - booked).toFixed(1)}h left)`}
+                ${isOT && totalSubmitted > baseLimit ? `(+${(totalSubmitted - baseLimit).toFixed(1)}h OT logged)` : isShiftComplete ? `(Shift limit reached — ${totalSubmitted.toFixed(1)}h logged)` : `(${Math.max(0, baseLimit - totalSubmitted).toFixed(1)}h left)`}
               </span>
             </div>
           </div>
@@ -8014,13 +8777,15 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
           <div id="hoursProgressBar" style="height:100%;width:${pct}%;background:linear-gradient(90deg,${pct>=100?'var(--fire),#FF8C42':pct>=70?'var(--gold),#E8960F':'var(--green),#16A34A'});transition:width 0.5s ease;"></div>
         </div>
         <div style="padding:8px 18px;display:flex;gap:16px;flex-wrap:wrap;">
-          <div style="display:flex;align-items:center;gap:6px;font-size:0.68rem;color:var(--text-3);"><span style="width:8px;height:8px;border-radius:2px;background:var(--fire-soft);border:1px solid var(--fire);display:inline-block;"></span>Booked: ${booked.toFixed(1)}h</div>
-          <div style="display:flex;align-items:center;gap:6px;font-size:0.68rem;color:var(--text-3);"><span style="width:8px;height:8px;border-radius:2px;background:var(--green-soft);border:1px solid var(--green);display:inline-block;"></span>${isOT && booked >= baseLimit ? 'OT Active (Unlimited)' : `Shift Left: ${Math.max(0, baseLimit - booked).toFixed(1)}h`}</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.68rem;color:var(--text-3);"><span style="width:8px;height:8px;border-radius:2px;background:var(--fire-soft);border:1px solid var(--fire);display:inline-block;"></span>Approved: ${booked.toFixed(1)}h</div>
+          ${pendingHrs > 0 ? `<div style="display:flex;align-items:center;gap:6px;font-size:0.68rem;color:var(--gold);"><span style="width:8px;height:8px;border-radius:2px;background:var(--gold-soft);border:1px solid var(--gold);display:inline-block;"></span>Pending: ${pendingHrs.toFixed(1)}h</div>` : ''}
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.68rem;color:var(--text-3);"><span style="width:8px;height:8px;border-radius:2px;background:var(--green-soft);border:1px solid var(--green);display:inline-block;"></span>${isOT && totalSubmitted >= baseLimit ? 'OT Active (Unlimited)' : isShiftComplete ? 'Shift 100% Filled' : `Shift Left: ${Math.max(0, baseLimit - totalSubmitted).toFixed(1)}h`}</div>
         </div>
       </div>
 
       <div class="tab-bar" style="margin-bottom:16px;">
         <button class="tab-btn ${_workerTab==='log'?'active':''}" onclick="_workerTab='log';renderWorkerDashboard();"><i class="fas fa-plus-circle" style="margin-right:5px;font-size:0.7rem;"></i>Log Hours</button>
+        <button class="tab-btn ${_workerTab==='otlist'?'active':''}" onclick="_workerTab='otlist';renderWorkerDashboard();"><i class="fas fa-file-invoice" style="margin-right:5px;font-size:0.7rem;"></i>My OT List</button>
         <button class="tab-btn ${_workerTab==='activities'?'active':''}" onclick="_workerTab='activities';renderWorkerDashboard();"><i class="fas fa-tasks" style="margin-right:5px;font-size:0.7rem;"></i>Activities</button>
         <button class="tab-btn ${_workerTab==='workers'?'active':''}" onclick="_workerTab='workers';renderWorkerDashboard();"><i class="fas fa-users" style="margin-right:5px;font-size:0.7rem;"></i>Workers</button>
         <button class="tab-btn ${_workerTab==='changepin'?'active':''}" onclick="_workerTab='changepin';renderWorkerDashboard();"><i class="fas fa-key" style="margin-right:5px;font-size:0.7rem;"></i>Change PIN</button>
@@ -8049,6 +8814,29 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
           `).join('')}
         </div>
       </div>` : ''}
+      
+      ${isShiftComplete ? `
+      <div class="panel fade-up" style="margin-bottom:14px;background:var(--green-soft);border:1.5px solid rgba(22,163,74,0.3);border-radius:14px;padding:18px 20px;">
+        <div style="display:flex;align-items:center;gap:14px;">
+          <div style="width:44px;height:44px;border-radius:50%;background:#16A34A;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0;box-shadow:0 4px 12px rgba(22,163,74,0.3);">
+            <i class="fas fa-circle-check"></i>
+          </div>
+          <div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:0.95rem;color:var(--text-1);">
+              Daily Shift Complete (${totalSubmitted.toFixed(1)}h / ${baseLimit.toFixed(1)}h)
+            </div>
+            <div style="font-size:0.72rem;color:var(--text-2);margin-top:3px;line-height:1.4;">
+              ${pendingHrs > 0 ? `You have <b>${pendingHrs.toFixed(1)}h</b> pending admin approval and <b>${booked.toFixed(1)}h</b> approved.` : `All <b>${booked.toFixed(1)}h</b> for today are approved.`}
+              Your shift quota is 100% completed for today.
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(22,163,74,0.18);font-size:0.68rem;color:var(--text-3);display:flex;align-items:center;gap:6px;">
+          <i class="fas fa-lock" style="color:var(--gold);"></i>
+          <span>Overtime is not enabled for today. Contact Admin if you worked extra OT hours.</span>
+        </div>
+      </div>
+      ` : `
       <div class="panel section-gap">
         <div class="panel-header">
           <div class="panel-title"><i class="fas fa-plus-circle"></i>Log Hours</div>
@@ -8072,6 +8860,7 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
           </div>
         </div>
       </div>
+      `}
       <div class="col-2" style="margin-top:16px;">
         <div class="panel">
           <div class="panel-header"><div class="panel-title"><i class="fas fa-calendar-day"></i>Today's Approved</div></div>
@@ -8134,12 +8923,16 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
         </div>
       </div>`:''}
 
+      ${_workerTab==='otlist'? buildWorkerOTListTab(worker.name) : ''}
+
     </div>
     </div>`;
 
   if(_workerTab==='log'){
-    refreshRowsUI();
-    updateTotals();
+    if(!isShiftComplete){
+      refreshRowsUI();
+      updateTotals();
+    }
 
     const refreshTables = ()=>{
       const todayEntries = jobEntries.filter(e=>e.workerName===worker.name&&e.date===today);
@@ -8169,6 +8962,7 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
         else historyDiv.innerHTML = `<table class="pro-table"><thead><tr><th>Date</th><th>Project</th><th>Activity</th><th>Hrs</th></tr></thead>
           <tbody>${allHistory.map(e=>`<tr>
             <td>${e.date}</td><td>${escapeHtml(e.projectName)}</td><td>${escapeHtml(e.activity)}</td>
+            <td>${e.hours.toFixed(1)}h</td>
             <td><span class="chip chip-gold" style="font-size:0.62rem;">${e.hours.toFixed(1)}h</span></td>
           </tr>`).join('')}</tbody></table>`;
       }
@@ -8184,20 +8978,23 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
       }
       try {
+        const sub = getWorkerSubmittedHours(worker.name, today);
         const total = rows.reduce((s,r)=>s+(r.hours||0),0);
         const avail = getRemainingHours(worker.name, today);
-        const totalDay = booked + total;
+        const totalDay = sub.total + total;
+        
+        if(!isOT && totalDay > (baseLimit + 0.001)){
+          const rem = Math.max(0, baseLimit - sub.total);
+          showToast(`Exceeds daily shift limit (${baseLimit.toFixed(1)}h). Only ${rem.toFixed(1)}h remaining for today. OT approval required from Admin.`, 'error');
+          if(btn){ btn.disabled=false; btn.innerHTML='<i class="fas fa-paper-plane"></i> Submit for Approval'; }
+          return;
+        }
         if(total > avail){
           showToast('Exceeds allowable hours','error');
           if(btn){ btn.disabled=false; btn.innerHTML='<i class="fas fa-paper-plane"></i> Submit for Approval'; }
           return;
         }
-        if(totalDay > baseLimit){
-          if(!isOT){
-            showToast(`Daily limit is ${baseLimit.toFixed(1)}h. OT approval required from Admin.`, 'error');
-            if(btn){ btn.disabled=false; btn.innerHTML='<i class="fas fa-paper-plane"></i> Submit for Approval'; }
-            return;
-          }
+        if(isOT && totalDay > (baseLimit + 0.001)){
           const otHours = totalDay - baseLimit;
           if(otHours < 1.999){
             showToast('Overtime must be at least 2 hours.', 'error');
@@ -8217,8 +9014,8 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
         }
         showToast(`${count} entries submitted!`);
         // ── Confetti if worker reached regular shift limit ──
-        const newTotal = getWorkerDailyHours(worker.name, today) + rows.reduce((s,r)=>s+(r.hours||0),0);
-        if(newTotal >= baseLimit) setTimeout(()=>launchConfetti(), 400);
+        const newSub = getWorkerSubmittedHours(worker.name, today);
+        if(newSub.total >= baseLimit) setTimeout(()=>launchConfetti(), 400);
         // ✅ Clear draft (memory + localStorage) after successful submit
         _workerDraftRows = null;
         _clearDraftStorage();
@@ -8259,6 +9056,11 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
       if(w) w.pin = newPin;
       loggedInWorker.pin = newPin;
       saveWorkers();
+      const sess = getAuthSession();
+      if(sess && sess.type === 'worker' && sess.workerName === worker.name){
+        sess.workerPin = newPin;
+        saveAuthSession(sess);
+      }
 
       // Sync to cloud
       if(isCloudReady()){
@@ -8423,9 +9225,12 @@ function setupRealtimeSubscriptions(){
 
 // ── INIT ──
 (async ()=>{
-  // 1. Load local data and show login IMMEDIATELY — never block on network
+  // 1. Load local data and restore session if available — never block on network
   loadData();
-  renderWorkerLogin();
+  const autoLoggedIn = restoreAuthSession();
+  if(!autoLoggedIn){
+    renderWorkerLogin();
+  }
 
   // Smoothly fade out splash screen loader after ~2.0s sequence
   setTimeout(() => {
@@ -8458,8 +9263,11 @@ function setupRealtimeSubscriptions(){
 
   if(synced){
     showToast('Synced from server', 'success');
-    // Refresh login page worker list with cloud data
-    if(currentMode === 'worker' && !loggedInWorker) renderWorkerLogin();
+    // Refresh login page worker list or auto-login if session was saved but waiting for workers data
+    if(currentMode === 'worker' && !loggedInWorker){
+      const autoLoggedInAfterSync = restoreAuthSession();
+      if(!autoLoggedInAfterSync) renderWorkerLogin();
+    }
   }
 
   // 4. Start realtime subscriptions

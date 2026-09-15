@@ -1,4 +1,4 @@
-const CACHE_NAME = 'indus-jobcard-v3.0.19';
+const CACHE_NAME = 'indus-jobcard-v3.0.22';
 
 // Core static assets to cache for offline application load
 const STATIC_ASSETS = [
@@ -24,6 +24,7 @@ const STATIC_ASSETS = [
   'https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
   'https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js',
   'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js',
   'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap'
 ];
