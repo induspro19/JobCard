@@ -2037,7 +2037,9 @@ function startLoginStatusClock(){
     }
 
     /* ── Job Allocation Modal (Viewport Centered & Enterprise Polish) ── */
-    #jobAllocationModal {
+    #jobAllocationModal,
+    #dailyPunchDateModal,
+    #bulkOTModal {
       display: none;
       position: fixed !important;
       top: 0 !important;
@@ -2058,7 +2060,9 @@ function startLoginStatusClock(){
       box-sizing: border-box;
       margin: 0 !important;
     }
-    #jobAllocationModal.open {
+    #jobAllocationModal.open,
+    #dailyPunchDateModal.open,
+    #bulkOTModal.open {
       display: flex !important;
     }
 
@@ -2665,6 +2669,7 @@ function startLoginStatusClock(){
     <div class="nav-item" data-section="approvalqueue" onclick="adminNav(this,'approvalqueue')" id="approvalQueueNav" title="Approval Queue"><i class="fas fa-inbox"></i><span class="nav-text">Approval Queue</span> <span id="pendingBadge" style="display:none;background:var(--fire);color:white;font-size:0.58rem;font-weight:700;padding:1px 6px;border-radius:99px;margin-left:4px;"></span></div>
     <div class="nav-label">Export</div>
     <div class="nav-item" onclick="doTodayPunchStatusExport();if(window.innerWidth<=768)closeMobileSidebar();" style="color:var(--fire);font-weight:600;" title="Today's Punches (Live)"><i class="fas fa-file-excel" style="color:var(--fire);"></i><span class="nav-text">Today's Punches (Live)</span></div>
+    <div class="nav-item" onclick="openDailyPunchDateModal();if(window.innerWidth<=768)closeMobileSidebar();" title="Download Punch Sheet for Any Date"><i class="fas fa-calendar-day" style="color:var(--gold);"></i><span class="nav-text">Punch Sheet (By Date)</span></div>
     <div class="nav-item" data-section="projecthours" onclick="adminNav(this,'projecthours')" title="Project Hours"><i class="fas fa-chart-bar"></i><span class="nav-text">Project Hours</span></div>
     <div class="nav-item" onclick="doExportExcel();if(window.innerWidth<=768)closeMobileSidebar();" title="Export Excel (All)"><i class="fas fa-file-excel"></i><span class="nav-text">Export Excel (All)</span></div>
     <div class="nav-item" data-section="monthlyreport" onclick="adminNav(this,'monthlyreport')" title="Monthly Report"><i class="fas fa-file-pdf"></i><span class="nav-text">Monthly Report</span></div>
@@ -2729,6 +2734,7 @@ const STORAGE_ENTRIES    = "jobcard_entries_v3";
 const STORAGE_PROJECTS   = "jobcard_projects_v3";
 const STORAGE_ATTENDANCE = "jobcard_attendance_v3";
 const STORAGE_OT         = "jobcard_ot_allowed_v3";
+const STORAGE_OT_HRS     = "jobcard_ot_hrs_v1";
 const STORAGE_SUNDAY     = "jobcard_sunday_approved_v3";
 const STORAGE_WORKERS    = "jobcard_workers_v3";
 const STORAGE_ACTIVITIES = "jobcard_activities_v3";
@@ -2910,7 +2916,7 @@ function _jcHandleCloudError(err, context){
 function _jcUpper(s){ return (s||'').toString().trim(); }
 
 function _jcPersistAttendanceMapsFromRows(rows){
-  const att = {}, ot = {}, sun = {}, hd = {}, hdHrs = {};
+  const att = {}, ot = {}, otHrs = {}, sun = {}, hd = {}, hdHrs = {};
   let alloc = {};
   try { alloc = JSON.parse(localStorage.getItem(STORAGE_JOB_ALLOCATIONS)||"{}"); } catch(_e){ alloc = {}; }
   (rows||[]).forEach(r=>{
@@ -2918,11 +2924,13 @@ function _jcPersistAttendanceMapsFromRows(rows){
     if(!d || !w) return;
     if(!att[d])   att[d]   = {};
     if(!ot[d])    ot[d]    = {};
+    if(!otHrs[d]) otHrs[d] = {};
     if(!sun[d])   sun[d]   = {};
     if(!hd[d])    hd[d]    = {};
     if(!hdHrs[d]) hdHrs[d] = {};
     att[d][w]   = !!r.present;
     ot[d][w]    = !!r.ot_allowed;
+    otHrs[d][w] = (r.ot_hours != null) ? parseFloat(r.ot_hours) : (r.ot_hrs != null ? parseFloat(r.ot_hrs) : 2.0);
     sun[d][w]   = !!r.sunday_approved;
     hd[d][w]    = !!r.half_day;
     hdHrs[d][w] = r.half_day_hours != null ? parseFloat(r.half_day_hours) : 3.75;
@@ -2935,6 +2943,7 @@ function _jcPersistAttendanceMapsFromRows(rows){
   });
   localStorage.setItem(STORAGE_ATTENDANCE, JSON.stringify(att));
   localStorage.setItem(STORAGE_OT,         JSON.stringify(ot));
+  localStorage.setItem(STORAGE_OT_HRS,     JSON.stringify(otHrs));
   localStorage.setItem(STORAGE_SUNDAY,     JSON.stringify(sun));
   localStorage.setItem(STORAGE_HALFDAY,    JSON.stringify(hd));
   localStorage.setItem(STORAGE_HALFDAY_HRS,JSON.stringify(hdHrs));
@@ -3117,23 +3126,26 @@ async function cloudUpsertAttendanceForDate(dateStr){
   const d = dateStr || getToday();
   const att   = getAttendanceMap()[d]    || {};
   const ot    = getOTMap()[d]            || {};
+  const otHrs = getOTHrsMap()[d]         || {};
   const sun   = getSundayMap()[d]        || {};
   const hd    = getHalfDayMap()[d]       || {};
   const hdHrs = getHalfDayHrsMap()[d]    || {};
   const alloc = getAllocationsMap()[d]   || {};
   const payload = (workers||[]).map(w=>({
     log_date: d, worker_name: _jcUpper(w.name),
-    present: !!att[w.name], ot_allowed: !!ot[w.name], sunday_approved: !!sun[w.name],
+    present: !!att[w.name], ot_allowed: !!ot[w.name],
+    ot_hours: ot[w.name] ? (otHrs[w.name] ?? 2.0) : null,
+    sunday_approved: !!sun[w.name],
     half_day: !!hd[w.name], half_day_hours: hd[w.name] ? (hdHrs[w.name] ?? 3.75) : null,
     job_allocations: alloc[w.name] ? JSON.stringify(alloc[w.name]) : null
   }));
   try{
     const res = await sb().from('jc_attendance').upsert(payload,{onConflict:'log_date,worker_name'});
     if(res?.error){
-      // If half_day or job_allocations columns don't exist yet, retry without them (graceful fallback)
+      // If half_day, ot_hours, or job_allocations columns don't exist yet, retry without them (graceful fallback)
       const msg = (res.error?.message||'').toLowerCase();
-      if(msg.includes('half_day') || msg.includes('column') || msg.includes('job_allocations')){
-        const fallback = payload.map(({half_day, half_day_hours, job_allocations, ...rest})=>rest);
+      if(msg.includes('half_day') || msg.includes('column') || msg.includes('job_allocations') || msg.includes('ot_hours')){
+        const fallback = payload.map(({half_day, half_day_hours, job_allocations, ot_hours, ...rest})=>rest);
         const res2 = await sb().from('jc_attendance').upsert(fallback,{onConflict:'log_date,worker_name'});
         if(res2?.error) throw res2.error;
         return;
@@ -3147,6 +3159,8 @@ function getAttendanceMap(){ return JSON.parse(localStorage.getItem(STORAGE_ATTE
 function saveAttendanceMap(m){ localStorage.setItem(STORAGE_ATTENDANCE,JSON.stringify(m)); }
 function getOTMap(){ return JSON.parse(localStorage.getItem(STORAGE_OT)||"{}"); }
 function saveOTMap(m){ localStorage.setItem(STORAGE_OT,JSON.stringify(m)); }
+function getOTHrsMap(){ return JSON.parse(localStorage.getItem(STORAGE_OT_HRS)||"{}"); }
+function saveOTHrsMap(m){ localStorage.setItem(STORAGE_OT_HRS,JSON.stringify(m)); }
 function getSundayMap(){ return JSON.parse(localStorage.getItem(STORAGE_SUNDAY)||"{}"); }
 function saveSundayMap(m){ localStorage.setItem(STORAGE_SUNDAY,JSON.stringify(m)); }
 function getHalfDayMap(){ return JSON.parse(localStorage.getItem(STORAGE_HALFDAY)||"{}"); }
@@ -3189,6 +3203,7 @@ window.bulkSetWorkerAllocations = bulkSetWorkerAllocations;
 
 function setAttendance(d,w,v){ const a=getAttendanceMap(); if(!a[d])a[d]={}; a[d][w]=v; saveAttendanceMap(a); }
 function setOT(d,w,v){ const o=getOTMap(); if(!o[d])o[d]={}; o[d][w]=v; saveOTMap(o); }
+function setOTHrs(d,w,v){ const o=getOTHrsMap(); if(!o[d])o[d]={}; o[d][w]=parseFloat(v)||2.0; saveOTHrsMap(o); }
 function setSunday(d,w,v){ const s=getSundayMap(); if(!s[d])s[d]={}; s[d][w]=v; saveSundayMap(s); }
 function setHalfDay(d,w,v){ const h=getHalfDayMap(); if(!h[d])h[d]={}; h[d][w]=v; saveHalfDayMap(h); }
 function setHalfDayHrs(d,w,v){ const h=getHalfDayHrsMap(); if(!h[d])h[d]={}; h[d][w]=parseFloat(v)||3.75; saveHalfDayHrsMap(h); }
@@ -3197,6 +3212,13 @@ function setHalfDayHrs(d,w,v){ const h=getHalfDayHrsMap(); if(!h[d])h[d]={}; h[d
 function isWorkerOTAllowed(workerName, date){
   const d = date || getToday();
   return !!(getOTMap()[d]?.[workerName]);
+}
+
+// Returns the supervisor-approved OT hours for worker on a date (default 2.0h)
+function getWorkerApprovedOTHrs(workerName, date){
+  const d = date || getToday();
+  const val = getOTHrsMap()[d]?.[workerName];
+  return (val != null && !isNaN(val)) ? parseFloat(val) : 2.0;
 }
 
 // Returns the regular base shift limit (7.5h or half-day hours)
@@ -3211,14 +3233,17 @@ function getWorkerBaseLimit(workerName, date){
 }
 
 // Returns the effective daily hour limit for a worker on a given date:
-// If OT approved: unlimited (up to 24h)
+// If OT approved: base limit + supervisor approved OT hours (e.g. 7.5h + 2.0h = 9.5h)
 // Otherwise: base limit (7.5h or half-day)
 function getWorkerDayLimit(workerName, date){
   const d = date || getToday();
-  if(isWorkerOTAllowed(workerName, d)){
-    return 24.0; // Unlimited when OT approved
+  const isOT = isWorkerOTAllowed(workerName, d);
+  const base = getWorkerBaseLimit(workerName, d);
+  if(isOT){
+    const otHrs = getWorkerApprovedOTHrs(workerName, d);
+    return parseFloat((base + otHrs).toFixed(2));
   }
-  return getWorkerBaseLimit(workerName, d);
+  return base;
 }
 
 function getWorkerDailyHours(worker,date){ return jobEntries.filter(e=>e.workerName===worker&&e.date===date).reduce((s,e)=>s+(parseFloat(e.hours)||0),0); }
@@ -3236,13 +3261,9 @@ function getWorkerSubmittedHours(workerName, date){
 
 function getRemainingHours(worker,date){
   const d = date || getToday();
-  const isOT = isWorkerOTAllowed(worker, d);
+  const limit = getWorkerDayLimit(worker, d);
   const sub = getWorkerSubmittedHours(worker, d);
-  if(isOT){
-    return Math.max(0, parseFloat((24.0 - sub.total).toFixed(2)));
-  }
-  const base = getWorkerBaseLimit(worker, d);
-  return Math.max(0, parseFloat((base - sub.total).toFixed(2)));
+  return Math.max(0, parseFloat((limit - sub.total).toFixed(2)));
 }
 
 async function addEntry(wn,proj,mainAct,subAct,hrs,date,detail){
@@ -5358,9 +5379,13 @@ function renderAdminSection(section){
   attachSectionEvents(section);
 }
 
-// ── HALF DAY TOGGLE (called inline from HTML) ──
+// ── HALF DAY & OVERTIME TOGGLE (called inline from HTML) ──
 window.toggleHalfDayRow = function(chk, wKey){
   const wrap = document.querySelector(`.hd-hrs-wrap[data-worker="${wKey}"]`);
+  if(wrap) wrap.style.display = chk.checked ? '' : 'none';
+};
+window.toggleOTRow = function(chk, wKey){
+  const wrap = document.querySelector(`.ot-hrs-wrap[data-worker="${wKey}"]`);
   if(wrap) wrap.style.display = chk.checked ? '' : 'none';
 };
 
@@ -5829,7 +5854,8 @@ function buildOverview(){
           <span class="badge-count">${jobEntries.length} Total</span>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <button class="btn btn-green btn-sm" onclick="doTodayPunchStatusExport()" title="Download today punch report Excel"><i class="fas fa-file-excel"></i> Today's Punches (Live)</button>
+          <button class="btn btn-green btn-sm" onclick="doTodayPunchStatusExport()" title="Download today punch report Excel"><i class="fas fa-file-excel"></i> Today's Punches</button>
+          <button class="btn btn-ghost btn-sm" onclick="openDailyPunchDateModal()" title="Select date for punch report Excel"><i class="fas fa-calendar-day" style="color:var(--gold);"></i> Punch Sheet (By Date)</button>
           <button class="btn btn-ghost btn-sm" style="color:#16A34A;border-color:rgba(22,163,74,0.3);" onclick="adminNav(null,'whatsappsettings')"><i class="fab fa-whatsapp"></i> WA Settings</button>
           <button class="btn btn-ghost btn-sm" onclick="adminNav(null,'entries')"><i class="fas fa-arrow-right"></i> View All</button>
         </div>
@@ -6333,7 +6359,7 @@ window.clearWorkerJobAllocation = async function(){
 
 function buildAttendance(selDate){
   _attSelectedDate = selDate;
-  const att = getAttendanceMap(), ot = getOTMap(), sun = getSundayMap();
+  const att = getAttendanceMap(), ot = getOTMap(), otHrs = getOTHrsMap(), sun = getSundayMap();
   const hd    = getHalfDayMap(),    hdHrs = getHalfDayHrsMap();
   const allocMap = getAllocationsMap()[selDate] || {};
   let allocatedCount = 0;
@@ -6341,6 +6367,7 @@ function buildAttendance(selDate){
   const rows = workers.map(w=>{
     const isPres   = att[selDate]?.[w.name]   || false;
     const otAllow  = ot[selDate]?.[w.name]    || false;
+    const otHrsVal = otHrs[selDate]?.[w.name] != null ? parseFloat(otHrs[selDate]?.[w.name]) : 2.0;
     const sunApp   = sun[selDate]?.[w.name]   || false;
     const isHalf   = hd[selDate]?.[w.name]    || false;
     const halfHrs  = hdHrs[selDate]?.[w.name] != null ? parseFloat(hdHrs[selDate]?.[w.name]) : 3.75;
@@ -6380,7 +6407,31 @@ function buildAttendance(selDate){
     return `<tr>
       <td>${escapeHtml(w.name)}</td>
       <td style="text-align:center;"><label class="toggle-wrap" style="justify-content:center;"><input type="checkbox" class="att-chk" data-worker="${wKey}" ${isPres?'checked':''}></label></td>
-      <td style="text-align:center;"><label class="toggle-wrap" style="justify-content:center;"><input type="checkbox" class="ot-chk"  data-worker="${wKey}" ${otAllow?'checked':''}></label></td>
+      <td style="text-align:center;">
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;">
+          <label class="toggle-wrap" style="justify-content:center;">
+            <input type="checkbox" class="ot-chk" data-worker="${wKey}" ${otAllow?'checked':''}
+              onchange="toggleOTRow(this,'${wKey}')">
+          </label>
+          <div class="ot-hrs-wrap" data-worker="${wKey}" style="${otAllow?'':'display:none;'}">
+            <div style="display:flex;align-items:center;gap:4px;">
+              <button type="button" class="ot-dec" data-worker="${wKey}"
+                style="width:22px;height:22px;border-radius:6px;background:var(--bg-hover);border:1px solid var(--border);color:var(--text-2);cursor:pointer;font-size:0.75rem;display:flex;align-items:center;justify-content:center;">
+                <i class="fas fa-minus" style="font-size:0.55rem;"></i>
+              </button>
+              <span class="ot-hrs-val" data-worker="${wKey}"
+                style="min-width:36px;text-align:center;font-weight:700;font-size:0.82rem;font-family:'Space Grotesk',sans-serif;color:var(--fire);">
+                ${otHrsVal.toFixed(1)}h
+              </span>
+              <button type="button" class="ot-inc" data-worker="${wKey}"
+                style="width:22px;height:22px;border-radius:6px;background:var(--bg-hover);border:1px solid var(--border);color:var(--text-2);cursor:pointer;font-size:0.75rem;display:flex;align-items:center;justify-content:center;">
+                <i class="fas fa-plus" style="font-size:0.55rem;"></i>
+              </button>
+              <input type="hidden" class="ot-hrs-input" data-worker="${wKey}" value="${otHrsVal}">
+            </div>
+          </div>
+        </div>
+      </td>
       <td style="text-align:center;"><label class="toggle-wrap" style="justify-content:center;"><input type="checkbox" class="sun-chk" data-worker="${wKey}" ${sunApp?'checked':''}></label></td>
       <td style="text-align:center;">
         <div style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;">
@@ -6411,7 +6462,7 @@ function buildAttendance(selDate){
       <td>
         <span class="chip chip-fire">${hrs.toFixed(2)}h</span>
         ${isHalf?`<span class="chip chip-gold" style="font-size:0.6rem;margin-left:4px;">/ ${halfHrs.toFixed(1)}h</span>`:''}
-        ${otAllow && hrs > (isHalf ? halfHrs : 7.5) ? `<span class="chip chip-fire" style="font-size:0.6rem;margin-left:4px;"><i class="fas fa-bolt"></i> OT: ${(hrs - (isHalf ? halfHrs : 7.5)).toFixed(1)}h</span>` : ''}
+        ${otAllow ? `<span class="chip chip-fire" style="font-size:0.6rem;margin-left:4px;"><i class="fas fa-bolt"></i> +${otHrsVal.toFixed(1)}h OT (Max: ${limit.toFixed(1)}h)</span>` : ''}
       </td>
     </tr>`;
   }).join('');
@@ -6429,17 +6480,19 @@ function buildAttendance(selDate){
             <i class="fas fa-briefcase" style="color:var(--fire);margin-right:4px;"></i>Allocated: ${allocatedCount}/${workers.length}
           </span>
           <div style="flex:1;"></div>
+          <button class="btn btn-ghost btn-sm" onclick="window.openBulkOTModal('${selDate}')" style="color:var(--fire);border-color:rgba(255,69,0,0.3);" title="Set allowed OT hours for all selected workers"><i class="fas fa-bolt"></i> Bulk Set OT</button>
           <button class="btn btn-ghost btn-sm" onclick="adminNav(null,'workerotlist')" style="color:var(--fire);border-color:rgba(255,69,0,0.3);"><i class="fas fa-business-time"></i> Worker OT List</button>
-          <button class="btn btn-green btn-sm" onclick="doTodayPunchStatusExport()"><i class="fas fa-file-excel"></i>Today's Punch Status</button>
+          <button class="btn btn-green btn-sm" onclick="doDailyPunchStatusExport('${selDate}')" title="Download punch sheet for ${selDate}"><i class="fas fa-file-excel"></i> ${selDate === getToday() ? "Today's Punch Status" : "Punch Status (" + selDate + ")"}</button>
+          <button class="btn btn-ghost btn-sm" onclick="openDailyPunchDateModal('${selDate}')" title="Select date for punch report Excel"><i class="fas fa-calendar-day"></i> Select Date</button>
           <button id="saveAttendBtn" class="btn btn-fire btn-sm"><i class="fas fa-save"></i>Save Attendance</button>
         </div>
         <div style="font-size:0.72rem;color:var(--text-2);background:var(--gold-soft);border:1px solid rgba(245,166,35,0.2);border-radius:10px;padding:10px 14px;margin-bottom:16px;">
           <i class="fas fa-circle-half-stroke" style="color:var(--gold);margin-right:6px;"></i>
-          <b>Job Allocation &amp; Half Day:</b> Allocate one or multiple projects and specific activities per worker. Toggle switch for half day (default 3.75h).
+          <b>Overtime &amp; Hour Limits:</b> Toggle OT switch and adjust allowable extra hours (e.g. 2.0h, 3.0h). Workers cannot punch beyond base shift + allowable OT hours. Toggle switch for half day (default 3.75h).
         </div>
         <div class="tbl-scroll">
           <table class="pro-table">
-            <thead><tr><th>Worker</th><th>Present</th><th>Overtime</th><th>Sunday</th><th>Half Day &amp; Hours</th><th>Allocated Work (Projects &amp; Activities)</th><th>Logged</th></tr></thead>
+            <thead><tr><th>Worker</th><th>Present</th><th>Overtime &amp; Allowed Hours</th><th>Sunday</th><th>Half Day &amp; Hours</th><th>Allocated Work (Projects &amp; Activities)</th><th>Logged / Limit</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>
@@ -6968,6 +7021,7 @@ function buildApprovalQueue(){
         <input type="date" id="aqDateFilter" class="inp" style="width:auto;" value="${filterDate}" onchange="window._aqFilterDate=this.value;renderAdminSection('approvalqueue');">
         <button class="btn btn-ghost btn-sm" onclick="window._aqFilterWorker='';window._aqFilterDate='';renderAdminSection('approvalqueue');"><i class="fas fa-times"></i>Clear</button>
         <button class="btn btn-green btn-sm" onclick="doTodayPunchStatusExport()"><i class="fas fa-file-excel"></i>Today's Punches</button>
+        <button class="btn btn-ghost btn-sm" onclick="openDailyPunchDateModal(window._aqFilterDate||'')" title="Download punch sheet by date"><i class="fas fa-calendar-day" style="color:var(--gold);"></i>By Date</button>
         <button class="btn btn-ghost btn-sm" id="aqRefreshBtn"><i class="fas fa-sync"></i>Refresh</button>
         ${pending.length>0?`<button class="btn btn-fire btn-sm" id="approveAllBtn"><i class="fas fa-check-double"></i>Approve All (${pending.length})</button>`:''}
       </div>
@@ -7181,6 +7235,21 @@ function attachSectionEvents(section){
       }
     });
 
+    // Wire up OT +/- steppers
+    document.querySelectorAll('.ot-dec, .ot-inc').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const wKey = btn.dataset.worker;
+        const hidden = document.querySelector(`.ot-hrs-input[data-worker="${wKey}"]`);
+        const label  = document.querySelector(`.ot-hrs-val[data-worker="${wKey}"]`);
+        if(!hidden || !label) return;
+        let val = parseFloat(hidden.value) || 2.0;
+        if(btn.classList.contains('ot-dec')) val = Math.max(0.5, parseFloat((val - 0.5).toFixed(2)));
+        else                                  val = Math.min(16.0, parseFloat((val + 0.5).toFixed(2)));
+        hidden.value   = val;
+        label.textContent = val.toFixed(1) + 'h';
+      });
+    });
+
     // Wire up half-day +/- steppers
     document.querySelectorAll('.hd-dec, .hd-inc').forEach(btn=>{
       btn.addEventListener('click', ()=>{
@@ -7198,7 +7267,14 @@ function attachSectionEvents(section){
 
     document.getElementById('saveAttendBtn')?.addEventListener('click', async ()=>{
       document.querySelectorAll('.att-chk').forEach(ch=>setAttendance(_attSelectedDate,ch.dataset.worker,ch.checked));
-      document.querySelectorAll('.ot-chk').forEach(ch=>setOT(_attSelectedDate,ch.dataset.worker,ch.checked));
+      document.querySelectorAll('.ot-chk').forEach(ch=>{
+        const wKey = ch.dataset.worker;
+        setOT(_attSelectedDate, wKey, ch.checked);
+        if(ch.checked){
+          const hrs = parseFloat(document.querySelector(`.ot-hrs-input[data-worker="${wKey}"]`)?.value) || 2.0;
+          setOTHrs(_attSelectedDate, wKey, hrs);
+        }
+      });
       document.querySelectorAll('.sun-chk').forEach(ch=>setSunday(_attSelectedDate,ch.dataset.worker,ch.checked));
       // Save half day toggle + custom hours
       document.querySelectorAll('.hd-chk').forEach(ch=>{
@@ -7210,7 +7286,7 @@ function attachSectionEvents(section){
         }
       });
       await cloudUpsertAttendanceForDate(_attSelectedDate);
-      showToast('Attendance saved');
+      showToast('Attendance & Overtime saved');
     });
   }
 
@@ -7480,27 +7556,46 @@ function doExportExcelForProject(projName){
   showToast(`Exported: ${projName}`);
 }
 
-// ── EXPORT TODAY'S PUNCH STATUS (LIVE: APPROVED & NON-APPROVED) ──
-function doTodayPunchStatusExport(){
-  const today = getToday();
+// ── EXPORT DAILY PUNCH STATUS (LIVE OR BACK-DATED: APPROVED & NON-APPROVED) ──
+function getYesterdayDate(){
+  const d = new Date(); d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+}
+function getPastDaysDate(n){
+  const d = new Date(); d.setDate(d.getDate() - n);
+  return d.toISOString().split('T')[0];
+}
+function getPastSundayDate(){
+  const d = new Date();
+  const day = d.getDay(); // 0 is Sunday
+  const diff = day === 0 ? 7 : day;
+  d.setDate(d.getDate() - diff);
+  return d.toISOString().split('T')[0];
+}
+
+function doDailyPunchStatusExport(selectedDate){
+  const targetDate = (selectedDate && typeof selectedDate === 'string' && selectedDate.trim()) ? selectedDate.trim() : getToday();
+  const isToday = (targetDate === getToday());
+
+  const dObj = new Date(targetDate + 'T12:00:00');
+  const dateStr = dObj.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const dateStr = now.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
 
-  const attMap  = getAttendanceMap()[today] || {};
-  const hdMap   = getHalfDayMap()[today]    || {};
-  const hdHrs   = getHalfDayHrsMap()[today] || {};
-  const otMap   = getOTMap()[today]         || {};
-  const allocMap = getAllocationsMap()[today] || {};
+  const attMap   = getAttendanceMap()[targetDate] || {};
+  const hdMap    = getHalfDayMap()[targetDate]    || {};
+  const hdHrs    = getHalfDayHrsMap()[targetDate] || {};
+  const otMap    = getOTMap()[targetDate]         || {};
+  const allocMap = getAllocationsMap()[targetDate] || {};
   let allocatedWorkersCount = 0;
 
-  // 1. Approved entries for today (from jobEntries)
-  const todayApproved = jobEntries.filter(e => e.date === today);
+  // 1. Approved entries for date (from jobEntries)
+  const dayApproved = jobEntries.filter(e => e.date === targetDate);
 
-  // 2. Non-approved (pending) entries for today (from pendingEntries) — deduplicated
+  // 2. Non-approved (pending) entries for date (from pendingEntries) — deduplicated
   const seenPendingKeys = new Set();
-  const todayPending = pendingEntries.filter(e => {
-    if (e.date !== today || e.status !== 'pending') return false;
+  const dayPending = pendingEntries.filter(e => {
+    if (e.date !== targetDate || e.status !== 'pending') return false;
     const key = `${(e.workerName||'').trim().toLowerCase()}|${(e.projectName||'').trim().toLowerCase()}|${(e.activity||'').trim().toLowerCase()}|${(e.subActivity||'').trim().toLowerCase()}|${Number(e.hours||0).toFixed(2)}`;
     if (seenPendingKeys.has(key)) return false;
     seenPendingKeys.add(key);
@@ -7520,8 +7615,8 @@ function doTodayPunchStatusExport(){
     const halfHrsVal = hdHrs[w.name] != null ? parseFloat(hdHrs[w.name]) : 3.75;
     if (isPresent) presentWorkersCount++;
 
-    const wApproved = todayApproved.filter(e => e.workerName === w.name);
-    const wPending  = todayPending.filter(e => e.workerName === w.name);
+    const wApproved = dayApproved.filter(e => e.workerName === w.name);
+    const wPending  = dayPending.filter(e => e.workerName === w.name);
 
     const appHrs = wApproved.reduce((s, e) => s + (parseFloat(e.hours) || 0), 0);
     const pndHrs = wPending.reduce((s, e) => s + (parseFloat(e.hours) || 0), 0);
@@ -7553,13 +7648,15 @@ function doTodayPunchStatusExport(){
     const allocProjsStr = wAllocs.map(a => a.project).filter(Boolean).join(', ') || '—';
     const allocActsStr  = wAllocs.map(a => (a.activities || []).join(', ')).filter(Boolean).join('; ') || '—';
 
+    const otHrsVal = getWorkerApprovedOTHrs(w.name, targetDate);
+
     return {
       'S.No': idx + 1,
       'Worker Name': w.name,
       'Attendance': attLabel,
       'Allocated Projects': allocProjsStr,
       'Allocated Activities': allocActsStr,
-      'OT Approved': isOT ? 'Yes' : 'No',
+      'OT Approved': isOT ? `Yes (${otHrsVal.toFixed(1)}h)` : 'No',
       'Punch Status': punchLabel,
       'Approved Hours': parseFloat(appHrs.toFixed(2)),
       'Pending (Non-Approved) Hours': parseFloat(pndHrs.toFixed(2)),
@@ -7577,16 +7674,16 @@ function doTodayPunchStatusExport(){
 
   // KPI Overview block for top of Sheet 1
   const kpiRows = [
-    { 'Metric': 'Report Title',                         'Value': 'Daily Job Card Punch Status (Current Date Only)' },
+    { 'Metric': 'Report Title',                         'Value': isToday ? 'Daily Job Card Punch Status (Live / Today)' : `Daily Job Card Punch Status (${targetDate})` },
     { 'Metric': 'Company',                              'Value': 'Indus Fire Safety Pvt Ltd' },
-    { 'Metric': 'Date',                                 'Value': `${today} (${dateStr})` },
-    { 'Metric': 'Downloaded At (Till Now)',              'Value': timeStr },
+    { 'Metric': 'Target Date',                          'Value': `${targetDate} (${dateStr})` },
+    { 'Metric': 'Exported At',                          'Value': `${timeStr} (Generated on ${new Date().toLocaleDateString()})` },
     { 'Metric': 'Total Registered Workers',             'Value': workers.length },
-    { 'Metric': 'Marked Present Today',                 'Value': presentWorkersCount },
-    { 'Metric': 'Workers with Job Allocated (Today)',   'Value': allocatedWorkersCount },
-    { 'Metric': 'Workers Who Punched (Till Now)',       'Value': punchedWorkersCount },
-    { 'Metric': 'Workers NOT Punched (Pending Fill)',   'Value': notPunchedCount },
-    { 'Metric': 'Total Approved Hours Today',           'Value': parseFloat(totalApprovedHrs.toFixed(2)) },
+    { 'Metric': 'Marked Present',                       'Value': presentWorkersCount },
+    { 'Metric': 'Workers with Job Allocated',           'Value': allocatedWorkersCount },
+    { 'Metric': 'Workers Who Punched',                  'Value': punchedWorkersCount },
+    { 'Metric': 'Workers NOT Punched',                  'Value': notPunchedCount },
+    { 'Metric': 'Total Approved Hours',                 'Value': parseFloat(totalApprovedHrs.toFixed(2)) },
     { 'Metric': 'Total Non-Approved (Pending) Hours',   'Value': parseFloat(totalPendingHrs.toFixed(2)) },
     { 'Metric': 'Total Hours Punched (Grand Total)',    'Value': parseFloat(totalHoursAll.toFixed(2)) },
     { 'Metric': 'Completion Rate (% Present Punched)',  'Value': presentWorkersCount > 0 ? ((punchedWorkersCount / presentWorkersCount) * 100).toFixed(1) + '%' : '0%' }
@@ -7597,12 +7694,14 @@ function doTodayPunchStatusExport(){
   // ── Sheet 1: Worker Punch Summary ──
   const ws1 = XLSX.utils.json_to_sheet(kpiRows, { header: ['Metric', 'Value'] });
   XLSX.utils.sheet_add_aoa(ws1, [['', '']], { origin: -1 });
-  XLSX.utils.sheet_add_aoa(ws1, [['--- INDIVIDUAL WORKER PUNCH STATUS (TODAY) ---']], { origin: -1 });
+  XLSX.utils.sheet_add_aoa(ws1, [[`--- INDIVIDUAL WORKER PUNCH STATUS (${targetDate}) ---`]], { origin: -1 });
   XLSX.utils.sheet_add_json(ws1, workerSummaryRows, { origin: -1, skipHeader: false });
   ws1['!cols'] = [
     { wch: 6 },  // S.No
     { wch: 22 }, // Worker Name
     { wch: 20 }, // Attendance
+    { wch: 26 }, // Allocated Projects
+    { wch: 30 }, // Allocated Activities
     { wch: 12 }, // OT Approved
     { wch: 20 }, // Punch Status
     { wch: 16 }, // Approved Hours
@@ -7614,12 +7713,13 @@ function doTodayPunchStatusExport(){
     { wch: 30 }, // Projects
     { wch: 35 }  // Activities
   ];
-  XLSX.utils.book_append_sheet(wb, ws1, 'Today Punch Summary');
+  const sheet1Name = isToday ? 'Today Punch Summary' : `Punch Summary ${targetDate.slice(5)}`;
+  XLSX.utils.book_append_sheet(wb, ws1, sheet1Name);
 
   // ── Sheet 2: All Punched Entries (Approved & Non-Approved) ──
   const allPunchEntries = [];
 
-  todayApproved.forEach(e => {
+  dayApproved.forEach(e => {
     allPunchEntries.push({
       'Entry ID': e.id || '—',
       'Status': 'APPROVED',
@@ -7634,7 +7734,7 @@ function doTodayPunchStatusExport(){
     });
   });
 
-  todayPending.forEach(e => {
+  dayPending.forEach(e => {
     allPunchEntries.push({
       'Entry ID': e.id || '—',
       'Status': 'NON-APPROVED (PENDING)',
@@ -7651,7 +7751,7 @@ function doTodayPunchStatusExport(){
 
   allPunchEntries.sort((a, b) => a['Worker Name'].localeCompare(b['Worker Name']));
 
-  const ws2 = XLSX.utils.json_to_sheet(allPunchEntries.length ? allPunchEntries : [{ Info: `No punches recorded yet for ${today}` }]);
+  const ws2 = XLSX.utils.json_to_sheet(allPunchEntries.length ? allPunchEntries : [{ Info: `No punches recorded for ${targetDate}` }]);
   ws2['!cols'] = [
     { wch: 18 }, // Entry ID
     { wch: 25 }, // Status
@@ -7667,11 +7767,349 @@ function doTodayPunchStatusExport(){
   XLSX.utils.book_append_sheet(wb, ws2, 'All Punched Entries');
 
   const fileStamp = timeStr.replace(/[^a-zA-Z0-9]/g, '_');
-  const filename = `Indus_Today_Punches_${today}_${fileStamp}.xlsx`;
+  const filename = isToday ? `Indus_Today_Punches_${targetDate}_${fileStamp}.xlsx` : `Indus_Daily_Punches_${targetDate}_${fileStamp}.xlsx`;
   XLSX.writeFile(wb, filename);
-  showToast(`Downloaded: ${punchedWorkersCount}/${workers.length} workers punched (${totalHoursAll.toFixed(1)}h total)`);
+  showToast(`Downloaded punch sheet (${targetDate}): ${punchedWorkersCount}/${workers.length} workers punched (${totalHoursAll.toFixed(1)}h total)`);
 }
+
+function doTodayPunchStatusExport(){
+  return doDailyPunchStatusExport(getToday());
+}
+
+// ── BACK-DATED PUNCH STATUS DATE PICKER MODAL ──
+function setDailyPunchModalDate(dateStr){
+  const inp = document.getElementById('punchModalDateInput');
+  if(inp){
+    inp.value = dateStr;
+    updateDailyPunchDateModalPreview();
+  }
+}
+
+function updateDailyPunchDateModalPreview(){
+  const dateInput = document.getElementById('punchModalDateInput');
+  const d = dateInput ? dateInput.value : getToday();
+  const box = document.getElementById('punchModalPreviewBox');
+  if(!box) return;
+
+  const appEntries = jobEntries.filter(e => e.date === d);
+  const pndEntries = pendingEntries.filter(e => e.date === d && e.status === 'pending');
+  const appHrs = appEntries.reduce((s,e) => s + (parseFloat(e.hours)||0), 0);
+  const pndHrs = pndEntries.reduce((s,e) => s + (parseFloat(e.hours)||0), 0);
+  const totHrs = appHrs + pndHrs;
+  
+  const workerSet = new Set([...appEntries.map(e=>e.workerName), ...pndEntries.map(e=>e.workerName)]);
+  const isToday = (d === getToday());
+
+  const dObj = new Date(d + 'T12:00:00');
+  const dFormatted = dObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' });
+
+  box.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <div style="font-weight:700;font-size:0.85rem;color:var(--text-1);">
+        <i class="fas fa-calendar-day" style="color:var(--fire);margin-right:6px;"></i>${dFormatted}
+      </div>
+      ${isToday ? '<span class="chip chip-green" style="font-size:0.6rem;padding:2px 7px;">TODAY (LIVE)</span>' : '<span class="chip chip-gold" style="font-size:0.6rem;padding:2px 7px;">BACK-DATED</span>'}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;">
+      <div style="background:var(--bg-card);padding:8px;border-radius:8px;border:1px solid var(--border);">
+        <div style="font-size:0.62rem;color:var(--text-3);font-weight:600;">WORKERS PUNCHED</div>
+        <div style="font-size:0.95rem;font-weight:800;color:var(--text-1);font-family:'Space Grotesk',sans-serif;margin-top:2px;">${workerSet.size} / ${workers.length}</div>
+      </div>
+      <div style="background:var(--bg-card);padding:8px;border-radius:8px;border:1px solid var(--border);">
+        <div style="font-size:0.62rem;color:var(--text-3);font-weight:600;">APPROVED / PENDING</div>
+        <div style="font-size:0.95rem;font-weight:800;color:var(--gold);font-family:'Space Grotesk',sans-serif;margin-top:2px;">${appEntries.length} / ${pndEntries.length}</div>
+      </div>
+      <div style="background:var(--bg-card);padding:8px;border-radius:8px;border:1px solid var(--border);">
+        <div style="font-size:0.62rem;color:var(--text-3);font-weight:600;">TOTAL HOURS</div>
+        <div style="font-size:0.95rem;font-weight:800;color:var(--fire);font-family:'Space Grotesk',sans-serif;margin-top:2px;">${totHrs.toFixed(1)}h</div>
+      </div>
+    </div>
+    <div style="font-size:0.68rem;color:var(--text-3);margin-top:10px;display:flex;align-items:center;gap:6px;">
+      <i class="fas fa-info-circle"></i>
+      Generates 2 sheets: <b>Worker Punch & Attendance Summary</b> + <b>All Punched Entries Breakdown</b>.
+    </div>
+  `;
+}
+
+function submitDailyPunchDateModal(){
+  const inp = document.getElementById('punchModalDateInput');
+  const date = inp ? inp.value : getToday();
+  closeDailyPunchDateModal();
+  doDailyPunchStatusExport(date);
+}
+
+window.openDailyPunchDateModal = function(initialDate){
+  const targetDate = initialDate || getToday();
+  let modal = document.getElementById('dailyPunchDateModal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'dailyPunchDateModal';
+    document.body.appendChild(modal);
+  } else if(modal.parentElement !== document.body){
+    document.body.appendChild(modal);
+  }
+
+  // Backdrop click dismissal
+  modal.onclick = function(e){
+    if(e.target === modal) window.closeDailyPunchDateModal();
+  };
+
+  // Escape key dismissal
+  if(!window._punchModalEscapeBound && typeof document !== 'undefined' && document.addEventListener){
+    window._punchModalEscapeBound = true;
+    document.addEventListener('keydown', function(e){
+      if(e.key === 'Escape'){
+        const m = document.getElementById('dailyPunchDateModal');
+        if(m && m.classList.contains('open')){
+          window.closeDailyPunchDateModal();
+        }
+      }
+    });
+  }
+
+  // Lock background scroll
+  if(document.body && document.body.style) document.body.style.overflow = 'hidden';
+
+  modal.innerHTML = `
+    <div class="alloc-modal-dialog" style="max-width: 520px;" onclick="event.stopPropagation()">
+      <div style="padding: 18px 22px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--bg-surface);">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(34, 197, 94, 0.12); color: var(--green); display: flex; align-items: center; justify-content: center; font-size: 1.1rem;">
+            <i class="fas fa-file-excel"></i>
+          </div>
+          <div>
+            <div style="font-weight: 700; font-size: 1rem; color: var(--text-1);">Daily Punch Status Export</div>
+            <div style="font-size: 0.72rem; color: var(--text-3);">Download punch sheet for Today or any Back Date</div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="closeDailyPunchDateModal()" style="padding: 4px 8px; border-radius: 8px;" title="Close">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+
+      <div style="padding: 22px; overflow-y: auto;">
+        <div style="margin-bottom: 14px;">
+          <label style="font-size: 0.7rem; font-weight: 700; color: var(--text-3); display: block; margin-bottom: 6px; letter-spacing: 0.05em;">SELECT DATE FOR PUNCH SHEET</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input type="date" id="punchModalDateInput" class="inp" value="${targetDate}" onchange="updateDailyPunchDateModalPreview()" style="font-size: 0.92rem; padding: 9px 12px; font-weight: 600; width: 100%;">
+          </div>
+        </div>
+
+        <div style="margin-bottom: 18px;">
+          <div style="font-size: 0.65rem; color: var(--text-3); font-weight: 600; margin-bottom: 6px;">QUICK PRESETS:</div>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button type="button" class="btn btn-ghost btn-xs" onclick="setDailyPunchModalDate(getToday())">Today</button>
+            <button type="button" class="btn btn-ghost btn-xs" onclick="setDailyPunchModalDate(getYesterdayDate())">Yesterday</button>
+            <button type="button" class="btn btn-ghost btn-xs" onclick="setDailyPunchModalDate(getPastDaysDate(2))">2 Days Ago</button>
+            <button type="button" class="btn btn-ghost btn-xs" onclick="setDailyPunchModalDate(getPastDaysDate(3))">3 Days Ago</button>
+            <button type="button" class="btn btn-ghost btn-xs" onclick="setDailyPunchModalDate(getPastSundayDate())">Last Sunday</button>
+          </div>
+        </div>
+
+        <div id="punchModalPreviewBox" style="background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;">
+        </div>
+      </div>
+
+      <div style="padding: 14px 22px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: flex-end; gap: 10px; background: var(--bg-surface);">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="closeDailyPunchDateModal()">Cancel</button>
+        <button type="button" class="btn btn-green" onclick="submitDailyPunchDateModal()" style="min-height: 38px; font-weight: 700;">
+          <i class="fas fa-file-excel"></i> Download Excel Sheet
+        </button>
+      </div>
+    </div>
+  `;
+
+  modal.classList.add('open');
+  modal.style.display = 'flex';
+  updateDailyPunchDateModalPreview();
+};
+
+window.closeDailyPunchDateModal = function(){
+  if(document.body && document.body.style) document.body.style.overflow = '';
+  const modal = document.getElementById('dailyPunchDateModal');
+  if(modal){
+    modal.classList.remove('open');
+    modal.style.display = 'none';
+  }
+};
+
+window.openBulkOTModal = function(dateStr){
+  const d = dateStr || _attSelectedDate || getToday();
+  const att = getAttendanceMap()[d] || {};
+  const ot = getOTMap()[d] || {};
+  const otHrs = getOTHrsMap()[d] || {};
+
+  let modal = document.getElementById('bulkOTModal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'bulkOTModal';
+    document.body.appendChild(modal);
+  } else if(modal.parentElement !== document.body){
+    document.body.appendChild(modal);
+  }
+
+  modal.onclick = function(e){
+    if(e.target === modal) window.closeBulkOTModal();
+  };
+
+  if(!window._bulkOTEscapeBound && typeof document !== 'undefined' && document.addEventListener){
+    window._bulkOTEscapeBound = true;
+    document.addEventListener('keydown', function(e){
+      if(e.key === 'Escape'){
+        const m = document.getElementById('bulkOTModal');
+        if(m && m.classList.contains('open')){
+          window.closeBulkOTModal();
+        }
+      }
+    });
+  }
+
+  if(document.body && document.body.style) document.body.style.overflow = 'hidden';
+
+  const workerItemsHtml = workers.map(w=>{
+    const isPres = att[w.name] === true;
+    const isAlreadyOT = ot[w.name] === true;
+    const curHrs = otHrs[w.name] != null ? parseFloat(otHrs[w.name]) : 2.0;
+    const wKey = escapeHtml(w.name);
+    return `
+      <label style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;cursor:pointer;gap:8px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" class="bulk-ot-worker-chk" data-worker="${wKey}" ${isPres || isAlreadyOT ? 'checked' : ''} style="accent-color:var(--fire);width:16px;height:16px;">
+          <span style="font-weight:600;font-size:0.8rem;color:var(--text-1);">${escapeHtml(w.name)}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          ${isPres ? '<span class="chip chip-green" style="font-size:0.58rem;padding:1px 6px;">Present</span>' : '<span class="chip" style="font-size:0.58rem;padding:1px 6px;color:var(--text-3);">Not Marked</span>'}
+          ${isAlreadyOT ? `<span class="chip chip-fire" style="font-size:0.58rem;padding:1px 6px;">${curHrs.toFixed(1)}h OT</span>` : ''}
+        </div>
+      </label>
+    `;
+  }).join('');
+
+  modal.innerHTML = `
+    <div class="alloc-modal-dialog" style="max-width: 540px;" onclick="event.stopPropagation()">
+      <div style="padding: 18px 22px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--bg-surface);">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(255, 69, 0, 0.12); color: var(--fire); display: flex; align-items: center; justify-content: center; font-size: 1.1rem;">
+            <i class="fas fa-bolt"></i>
+          </div>
+          <div>
+            <div style="font-weight: 700; font-size: 1rem; color: var(--text-1);">Bulk Set Overtime (OT) Hours</div>
+            <div style="font-size: 0.72rem; color: var(--text-3);">Select workers and set exact allowable OT hours for ${d}</div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="closeBulkOTModal()" style="padding: 4px 8px; border-radius: 8px;" title="Close">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+
+      <div style="padding: 22px; overflow-y: auto; max-height: calc(80vh - 120px);">
+        <!-- OT Hours Stepper -->
+        <div style="margin-bottom: 18px; background: var(--fire-soft); border: 1px solid rgba(255,69,0,0.25); border-radius: 12px; padding: 14px 16px;">
+          <label style="font-size: 0.72rem; font-weight: 700; color: var(--text-1); display: block; margin-bottom: 8px;">
+            <i class="fas fa-clock" style="color:var(--fire);margin-right:5px;"></i>ALLOWABLE OVERTIME HOURS (PER WORKER)
+          </label>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="display:flex;align-items:center;gap:6px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:4px 8px;">
+              <button type="button" onclick="adjustBulkOTHrs(-0.5)" style="width:30px;height:30px;border-radius:8px;background:var(--bg-hover);border:1px solid var(--border);color:var(--text-1);cursor:pointer;font-weight:700;font-size:0.9rem;">-</button>
+              <span id="bulkOTHrsDisplay" style="min-width:54px;text-align:center;font-weight:800;font-size:1.1rem;font-family:'Space Grotesk',sans-serif;color:var(--fire);">2.0h</span>
+              <button type="button" onclick="adjustBulkOTHrs(0.5)" style="width:30px;height:30px;border-radius:8px;background:var(--bg-hover);border:1px solid var(--border);color:var(--text-1);cursor:pointer;font-weight:700;font-size:0.9rem;">+</button>
+              <input type="hidden" id="bulkOTHrsVal" value="2.0">
+            </div>
+            <div style="font-size:0.7rem;color:var(--text-2);">
+              Workers can punch standard 7.5h + <b id="bulkOTExplain">2.0h OT</b> = <b><span id="bulkOTTotalExplain">9.5h max</span></b>.
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick selection buttons -->
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+          <span style="font-size: 0.7rem; font-weight: 700; color: var(--text-3);">SELECT WORKERS FOR OT:</span>
+          <div style="display: flex; gap: 6px;">
+            <button type="button" class="btn btn-ghost btn-xs" onclick="document.querySelectorAll('.bulk-ot-worker-chk').forEach(c=>c.checked=true)">All</button>
+            <button type="button" class="btn btn-ghost btn-xs" onclick="document.querySelectorAll('.bulk-ot-worker-chk').forEach(c=>c.checked=false)">None</button>
+          </div>
+        </div>
+
+        <!-- Workers List -->
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          ${workerItemsHtml}
+        </div>
+      </div>
+
+      <div style="padding: 14px 22px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: flex-end; gap: 10px; background: var(--bg-surface);">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="closeBulkOTModal()">Cancel</button>
+        <button type="button" class="btn btn-fire" onclick="applyBulkOTModal('${d}')" style="min-height: 38px; font-weight: 700;">
+          <i class="fas fa-check"></i> Apply OT Hours
+        </button>
+      </div>
+    </div>
+  `;
+
+  modal.classList.add('open');
+  modal.style.display = 'flex';
+};
+
+window.closeBulkOTModal = function(){
+  if(document.body && document.body.style) document.body.style.overflow = '';
+  const modal = document.getElementById('bulkOTModal');
+  if(modal){
+    modal.classList.remove('open');
+    modal.style.display = 'none';
+  }
+};
+
+window.adjustBulkOTHrs = function(delta){
+  const input = document.getElementById('bulkOTHrsVal');
+  const display = document.getElementById('bulkOTHrsDisplay');
+  const explain = document.getElementById('bulkOTExplain');
+  const totExplain = document.getElementById('bulkOTTotalExplain');
+  if(!input || !display) return;
+  let val = parseFloat(input.value) || 2.0;
+  val = Math.max(0.5, Math.min(16.0, parseFloat((val + delta).toFixed(2))));
+  input.value = val;
+  display.textContent = val.toFixed(1) + 'h';
+  if(explain) explain.textContent = val.toFixed(1) + 'h OT';
+  if(totExplain) totExplain.textContent = (7.5 + val).toFixed(1) + 'h max';
+};
+
+window.applyBulkOTModal = async function(dateStr){
+  const d = dateStr || _attSelectedDate || getToday();
+  const input = document.getElementById('bulkOTHrsVal');
+  const otHrs = input ? parseFloat(input.value) || 2.0 : 2.0;
+
+  const chks = document.querySelectorAll('.bulk-ot-worker-chk');
+  let count = 0;
+  chks.forEach(chk=>{
+    const w = chk.dataset.worker;
+    if(chk.checked){
+      setOT(d, w, true);
+      setOTHrs(d, w, otHrs);
+      count++;
+    } else {
+      setOT(d, w, false);
+    }
+  });
+
+  await cloudUpsertAttendanceForDate(d);
+  window.closeBulkOTModal();
+  showToast(`OT configured for ${count} workers (${otHrs.toFixed(1)}h limit)!`);
+
+  const root = document.getElementById('appRoot')?.querySelector('.page-body');
+  if(root){
+    root.innerHTML = buildAttendance(d);
+    attachSectionEvents('attendance');
+  }
+};
+
+window.doDailyPunchStatusExport = doDailyPunchStatusExport;
 window.doTodayPunchStatusExport = doTodayPunchStatusExport;
+window.setDailyPunchModalDate = setDailyPunchModalDate;
+window.updateDailyPunchDateModalPreview = updateDailyPunchDateModalPreview;
+window.submitDailyPunchDateModal = submitDailyPunchDateModal;
+window.openBulkOTModal = window.openBulkOTModal;
+window.closeBulkOTModal = window.closeBulkOTModal;
+window.adjustBulkOTHrs = window.adjustBulkOTHrs;
+window.applyBulkOTModal = window.applyBulkOTModal;
 
 function doExportExcel(){
   const wb = XLSX.utils.book_new();
@@ -8669,9 +9107,13 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
         otWarning = `Exceeds regular shift limit (${baseLimit.toFixed(1)}h). Only ${rem.toFixed(1)}h remaining today. OT approval required from Admin.`;
       } else {
         const otHours = totalDay - baseLimit;
+        const approvedOt = getWorkerApprovedOTHrs(worker.name, today);
         if(otHours < 1.999){
           isOtInvalid = true;
           otWarning = `⚠️ Minimum 2.0h Overtime required (currently ${otHours.toFixed(1)}h OT).`;
+        } else if(otHours > (approvedOt + 0.001)){
+          isOtInvalid = true;
+          otWarning = `⛔ Exceeds supervisor approved Overtime limit of ${approvedOt.toFixed(1)}h (Attempting ${otHours.toFixed(1)}h OT). Max allowed total is ${(baseLimit + approvedOt).toFixed(1)}h.`;
         }
       }
     }
@@ -8763,11 +9205,11 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
               <span style="font-family:'Space Grotesk',sans-serif;font-size:1.6rem;font-weight:700;color:${pctColor};">${totalSubmitted.toFixed(1)}</span>
               <span style="font-size:0.8rem;color:var(--text-3);">/ ${baseLimit.toFixed(1)}h
                 ${isHalfDay?'<span class=\'chip chip-gold\' style=\'font-size:0.6rem;padding:2px 8px;vertical-align:middle;\'><i class=\'fas fa-circle-half-stroke\'></i> Half Day</span>':''}
-                ${isOT?'<span class=\'chip chip-fire\' style=\'font-size:0.6rem;padding:2px 8px;vertical-align:middle;\'><i class=\'fas fa-bolt\'></i> OT Approved (Min 2h)</span>':''}
+                ${isOT?`<span class=\'chip chip-fire\' style=\'font-size:0.6rem;padding:2px 8px;vertical-align:middle;\'><i class=\'fas fa-bolt\'></i> OT Approved: Up to ${approvedOtHrs.toFixed(1)}h (Max: ${dayLimit.toFixed(1)}h)</span>`:''}
                 ${isShiftComplete?'<span class=\'chip chip-green\' style=\'font-size:0.6rem;padding:2px 8px;vertical-align:middle;\'><i class=\'fas fa-check-circle\'></i> Shift Complete</span>':''}
               </span>
               <span style="font-size:0.72rem;color:var(--text-2);margin-left:6px;">
-                ${isOT && totalSubmitted > baseLimit ? `(+${(totalSubmitted - baseLimit).toFixed(1)}h OT logged)` : isShiftComplete ? `(Shift limit reached — ${totalSubmitted.toFixed(1)}h logged)` : `(${Math.max(0, baseLimit - totalSubmitted).toFixed(1)}h left)`}
+                ${isOT && totalSubmitted > baseLimit ? `(+${(totalSubmitted - baseLimit).toFixed(1)}h OT logged / max ${approvedOtHrs.toFixed(1)}h)` : isShiftComplete ? `(Shift limit reached — ${totalSubmitted.toFixed(1)}h logged)` : `(${Math.max(0, baseLimit - totalSubmitted).toFixed(1)}h left)`}
               </span>
             </div>
           </div>
@@ -8779,7 +9221,7 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
         <div style="padding:8px 18px;display:flex;gap:16px;flex-wrap:wrap;">
           <div style="display:flex;align-items:center;gap:6px;font-size:0.68rem;color:var(--text-3);"><span style="width:8px;height:8px;border-radius:2px;background:var(--fire-soft);border:1px solid var(--fire);display:inline-block;"></span>Approved: ${booked.toFixed(1)}h</div>
           ${pendingHrs > 0 ? `<div style="display:flex;align-items:center;gap:6px;font-size:0.68rem;color:var(--gold);"><span style="width:8px;height:8px;border-radius:2px;background:var(--gold-soft);border:1px solid var(--gold);display:inline-block;"></span>Pending: ${pendingHrs.toFixed(1)}h</div>` : ''}
-          <div style="display:flex;align-items:center;gap:6px;font-size:0.68rem;color:var(--text-3);"><span style="width:8px;height:8px;border-radius:2px;background:var(--green-soft);border:1px solid var(--green);display:inline-block;"></span>${isOT && totalSubmitted >= baseLimit ? 'OT Active (Unlimited)' : isShiftComplete ? 'Shift 100% Filled' : `Shift Left: ${Math.max(0, baseLimit - totalSubmitted).toFixed(1)}h`}</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.68rem;color:var(--text-3);"><span style="width:8px;height:8px;border-radius:2px;background:var(--green-soft);border:1px solid var(--green);display:inline-block;"></span>${isOT && totalSubmitted >= baseLimit ? `OT Active (${(totalSubmitted - baseLimit).toFixed(1)}h / max ${approvedOtHrs.toFixed(1)}h)` : isShiftComplete ? 'Shift 100% Filled' : `Shift Left: ${Math.max(0, baseLimit - totalSubmitted).toFixed(1)}h`}</div>
         </div>
       </div>
 
@@ -8988,6 +9430,16 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
           showToast(`Exceeds daily shift limit (${baseLimit.toFixed(1)}h). Only ${rem.toFixed(1)}h remaining for today. OT approval required from Admin.`, 'error');
           if(btn){ btn.disabled=false; btn.innerHTML='<i class="fas fa-paper-plane"></i> Submit for Approval'; }
           return;
+        }
+        if(isOT){
+          const approvedOt = getWorkerApprovedOTHrs(worker.name, today);
+          const maxDayAllowed = baseLimit + approvedOt;
+          if(totalDay > (maxDayAllowed + 0.001)){
+            const rem = Math.max(0, maxDayAllowed - sub.total);
+            showToast(`Exceeds supervisor approved Overtime limit (${approvedOt.toFixed(1)}h OT, max total ${maxDayAllowed.toFixed(1)}h). Only ${rem.toFixed(1)}h remaining.`, 'error');
+            if(btn){ btn.disabled=false; btn.innerHTML='<i class="fas fa-paper-plane"></i> Submit for Approval'; }
+            return;
+          }
         }
         if(total > avail){
           showToast('Exceeds allowable hours','error');
