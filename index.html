@@ -2855,7 +2855,13 @@ function _workerHasDirtyRows(){
   return _workerDraftRows.some(r => r.project || r.mainAct || (r.subActs && r.subActs.length > 0) || r.detail);
 }
 
-function getToday() { return new Date().toISOString().split('T')[0]; }
+function getToday() {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 var JC_SUPABASE_URL = 'https://duikfskqbacackelieux.supabase.co';
 var JC_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR1aWtmc2txYmFjYWNrZWxpZXV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2MTA0ODIsImV4cCI6MjA3OTE4NjQ4Mn0.IST84GYs9-5eOGmx485XPqDAwfp0Jdw5MHAjzUYTUUA';
@@ -2916,7 +2922,7 @@ function _jcHandleCloudError(err, context){
 function _jcUpper(s){ return (s||'').toString().trim(); }
 
 function _jcPersistAttendanceMapsFromRows(rows){
-  const att = {}, ot = {}, otHrs = {}, sun = {}, hd = {}, hdHrs = {};
+  const att = getAttendanceMap(), ot = getOTMap(), otHrs = getOTHrsMap(), sun = getSundayMap(), hd = getHalfDayMap(), hdHrs = getHalfDayHrsMap();
   let alloc = {};
   try { alloc = JSON.parse(localStorage.getItem(STORAGE_JOB_ALLOCATIONS)||"{}"); } catch(_e){ alloc = {}; }
   (rows||[]).forEach(r=>{
@@ -3208,26 +3214,60 @@ function setSunday(d,w,v){ const s=getSundayMap(); if(!s[d])s[d]={}; s[d][w]=v; 
 function setHalfDay(d,w,v){ const h=getHalfDayMap(); if(!h[d])h[d]={}; h[d][w]=v; saveHalfDayMap(h); }
 function setHalfDayHrs(d,w,v){ const h=getHalfDayHrsMap(); if(!h[d])h[d]={}; h[d][w]=parseFloat(v)||3.75; saveHalfDayHrsMap(h); }
 
-// Helper to check if Overtime is approved for worker on a date
+// Helper to check if worker is marked Present on a date (case-insensitive & trimmed)
+function isWorkerPresent(workerName, date){
+  const d = date || getToday();
+  const attMap = getAttendanceMap()[d] || {};
+  if(attMap[workerName] === true) return true;
+  const target = (workerName || '').trim().toLowerCase();
+  for(const k in attMap){
+    if(k.trim().toLowerCase() === target && attMap[k] === true) return true;
+  }
+  return false;
+}
+
+// Helper to check if Overtime is approved for worker on a date (case-insensitive & trimmed)
 function isWorkerOTAllowed(workerName, date){
   const d = date || getToday();
-  return !!(getOTMap()[d]?.[workerName]);
+  const otMap = getOTMap()[d] || {};
+  if(otMap[workerName] === true) return true;
+  const target = (workerName || '').trim().toLowerCase();
+  for(const k in otMap){
+    if(k.trim().toLowerCase() === target && otMap[k] === true) return true;
+  }
+  return false;
 }
 
 // Returns the supervisor-approved OT hours for worker on a date (default 2.0h)
 function getWorkerApprovedOTHrs(workerName, date){
   const d = date || getToday();
-  const val = getOTHrsMap()[d]?.[workerName];
-  return (val != null && !isNaN(val)) ? parseFloat(val) : 2.0;
+  const map = getOTHrsMap()[d] || {};
+  if(map[workerName] != null && !isNaN(map[workerName])) return parseFloat(map[workerName]);
+  const target = (workerName || '').trim().toLowerCase();
+  for(const k in map){
+    if(k.trim().toLowerCase() === target && map[k] != null && !isNaN(map[k])) return parseFloat(map[k]);
+  }
+  return 2.0;
 }
 
 // Returns the regular base shift limit (7.5h or half-day hours)
 function getWorkerBaseLimit(workerName, date){
   const d = date || getToday();
-  const hd = getHalfDayMap()[d]?.[workerName] || false;
-  if(hd){
-    const hrs = getHalfDayHrsMap()[d]?.[workerName];
-    return (hrs != null) ? parseFloat(hrs) : 3.75;
+  const hdMap = getHalfDayMap()[d] || {};
+  let isHD = hdMap[workerName] === true;
+  const target = (workerName || '').trim().toLowerCase();
+  if(!isHD){
+    for(const k in hdMap){
+      if(k.trim().toLowerCase() === target && hdMap[k] === true){ isHD = true; break; }
+    }
+  }
+  if(isHD){
+    const hdHrsMap = getHalfDayHrsMap()[d] || {};
+    if(hdHrsMap[workerName] != null && !isNaN(hdHrsMap[workerName])) return parseFloat(hdHrsMap[workerName]);
+    for(const k in hdHrsMap){
+      if(k.trim().toLowerCase() === target && hdHrsMap[k] != null && !isNaN(hdHrsMap[k])) return parseFloat(hdHrsMap[k]);
+    }
+    return 3.75;
   }
   return 7.5;
 }
@@ -3246,12 +3286,16 @@ function getWorkerDayLimit(workerName, date){
   return base;
 }
 
-function getWorkerDailyHours(worker,date){ return jobEntries.filter(e=>e.workerName===worker&&e.date===date).reduce((s,e)=>s+(parseFloat(e.hours)||0),0); }
+function getWorkerDailyHours(worker,date){
+  const target = (worker || '').trim().toLowerCase();
+  return jobEntries.filter(e=>(e.workerName||'').trim().toLowerCase()===target&&e.date===date).reduce((s,e)=>s+(parseFloat(e.hours)||0),0);
+}
 
 function getWorkerSubmittedHours(workerName, date){
   const d = date || getToday();
-  const approved = jobEntries.filter(e=>e.workerName===workerName && e.date===d).reduce((s,e)=>s+(parseFloat(e.hours)||0),0);
-  const pending  = pendingEntries.filter(e=>e.workerName===workerName && e.date===d && e.status==='pending').reduce((s,e)=>s+(parseFloat(e.hours)||0),0);
+  const target = (workerName || '').trim().toLowerCase();
+  const approved = jobEntries.filter(e=>(e.workerName||'').trim().toLowerCase()===target && e.date===d).reduce((s,e)=>s+(parseFloat(e.hours)||0),0);
+  const pending  = pendingEntries.filter(e=>(e.workerName||'').trim().toLowerCase()===target && e.date===d && e.status==='pending').reduce((s,e)=>s+(parseFloat(e.hours)||0),0);
   return {
     approved: parseFloat(approved.toFixed(2)),
     pending: parseFloat(pending.toFixed(2)),
@@ -4983,14 +5027,35 @@ function setTopbar(title,sub,mode){
       menuBtn.title = 'Toggle Sidebar';
     }
   } else if(mode==='worker' && loggedInWorker){
-    tr.innerHTML=`<span class="topbar-badge badge-worker"><i class="fas fa-user-hard-hat"></i>${escapeHtml(loggedInWorker.name)}</span>
-    <button class="btn btn-ghost btn-sm" onclick="doWorkerLogout()"><i class="fas fa-sign-out-alt"></i> Logout</button>`;
+    tr.innerHTML=`
+      <button class="btn btn-ghost btn-sm" onclick="_workerManualSync()" title="Refresh Attendance & Sync" style="margin-right:6px;">
+        <i class="fas fa-arrows-rotate"></i> Sync
+      </button>
+      <span class="topbar-badge badge-worker"><i class="fas fa-user-hard-hat"></i>${escapeHtml(loggedInWorker.name)}</span>
+      <button class="btn btn-ghost btn-sm" onclick="doWorkerLogout()"><i class="fas fa-sign-out-alt"></i> Logout</button>`;
     if(menuBtn) menuBtn.style.display='none';
   } else {
     tr.innerHTML='';
     if(menuBtn) menuBtn.style.display='none';
   }
 }
+
+window._workerManualSync = async function(){
+  showToast('Refreshing attendance & entries from server...', 'info');
+  const res = await loadFromCloud();
+  if(res){
+    showToast('Sync complete! Latest attendance loaded.', 'success');
+  } else {
+    showToast('Server not reachable, showing local data', 'info');
+  }
+  if(currentMode === 'worker' && loggedInWorker){
+    if(_workerTab === 'log' && _workerDraftRows && _workerHasDirtyRows()){
+      _rtWorkerSoftRefresh();
+    } else {
+      renderWorkerDashboard();
+    }
+  }
+};
 function hideTopbar(){ document.getElementById('topbar').style.display='none'; }
 
 function adminNav(el, section){
@@ -8883,14 +8948,14 @@ function renderWorkerDashboard(){
   const totalSubmitted = submitted.total;
   const baseLimit = getWorkerBaseLimit(worker.name, today);
   const isOT      = isWorkerOTAllowed(worker.name, today);
+  const approvedOtHrs = getWorkerApprovedOTHrs(worker.name, today);
   const dayLimit  = getWorkerDayLimit(worker.name, today);
   const remaining = getRemainingHours(worker.name, today);
   const isHalfDay = getHalfDayMap()[today]?.[worker.name] || false;
   const isShiftComplete = !isOT && totalSubmitted >= (baseLimit - 0.001);
   const pct = Math.min(100, Math.round((totalSubmitted / baseLimit) * 100));
   const activeProjectsList = getActiveProjects().map(p=>p.name);
-  const attMap    = getAttendanceMap()[today] || {};
-  const isPresent = attMap[worker.name] === true;
+  const isPresent = isWorkerPresent(worker.name, today);
   const allocatedJobs = getWorkerAllocations(worker.name, today);
 
   setTopbar(worker.name, `Today: ${today}`, 'worker');
@@ -9087,9 +9152,17 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
   }
 
   const updateTotals = ()=>{
+    const curIsPresent = isWorkerPresent(worker.name, today);
+    const curIsOT = isWorkerOTAllowed(worker.name, today);
+    const curBaseLimit = getWorkerBaseLimit(worker.name, today);
+    const curApprovedOt = getWorkerApprovedOTHrs(worker.name, today);
+    const curSubmitted = getWorkerSubmittedHours(worker.name, today);
+    const curTotalSubmitted = curSubmitted.total;
+    const curIsShiftComplete = !curIsOT && curTotalSubmitted >= (curBaseLimit - 0.001);
+
     const total = rows.reduce((s,r)=>s+(r.hours||0),0);
     const avail = getRemainingHours(worker.name, today);
-    const totalDay = totalSubmitted + total;
+    const totalDay = curTotalSubmitted + total;
     const allValid = rows.every(r=>{
       if(!r.project||!r.mainAct||r.hours<=0) return false;
       const subList = getSubList(r.mainAct, r.project);
@@ -9100,20 +9173,19 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
     let otWarning = '';
     let isOtInvalid = false;
 
-    if(totalDay > (baseLimit + 0.001)){
-      if(!isOT){
+    if(totalDay > (curBaseLimit + 0.001)){
+      if(!curIsOT){
         isOtInvalid = true;
-        const rem = Math.max(0, baseLimit - totalSubmitted);
-        otWarning = `Exceeds regular shift limit (${baseLimit.toFixed(1)}h). Only ${rem.toFixed(1)}h remaining today. OT approval required from Admin.`;
+        const rem = Math.max(0, curBaseLimit - curTotalSubmitted);
+        otWarning = `Exceeds regular shift limit (${curBaseLimit.toFixed(1)}h). Only ${rem.toFixed(1)}h remaining today. OT approval required from Admin.`;
       } else {
-        const otHours = totalDay - baseLimit;
-        const approvedOt = getWorkerApprovedOTHrs(worker.name, today);
+        const otHours = totalDay - curBaseLimit;
         if(otHours < 1.999){
           isOtInvalid = true;
           otWarning = `⚠️ Minimum 2.0h Overtime required (currently ${otHours.toFixed(1)}h OT).`;
-        } else if(otHours > (approvedOt + 0.001)){
+        } else if(otHours > (curApprovedOt + 0.001)){
           isOtInvalid = true;
-          otWarning = `⛔ Exceeds supervisor approved Overtime limit of ${approvedOt.toFixed(1)}h (Attempting ${otHours.toFixed(1)}h OT). Max allowed total is ${(baseLimit + approvedOt).toFixed(1)}h.`;
+          otWarning = `⛔ Exceeds supervisor approved Overtime limit of ${curApprovedOt.toFixed(1)}h (Attempting ${otHours.toFixed(1)}h OT). Max allowed total is ${(curBaseLimit + curApprovedOt).toFixed(1)}h.`;
         }
       }
     }
@@ -9125,10 +9197,10 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
 
     if(totalEl) totalEl.textContent = total.toFixed(1);
     if(remEl){
-      if(isOT && totalDay > baseLimit){
-        remEl.textContent = `+${(totalDay - baseLimit).toFixed(1)}h OT`;
+      if(curIsOT && totalDay > curBaseLimit){
+        remEl.textContent = `+${(totalDay - curBaseLimit).toFixed(1)}h OT`;
       } else {
-        remEl.textContent = Math.max(0, baseLimit - totalDay).toFixed(1);
+        remEl.textContent = Math.max(0, curBaseLimit - totalDay).toFixed(1);
       }
     }
     if(warnEl){
@@ -9137,10 +9209,19 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
     }
 
     if(btn){
-      btn.disabled = (!allValid || total===0 || total>avail || !isPresent || isOtInvalid || isShiftComplete);
+      btn.disabled = (!allValid || total===0 || total>avail || !curIsPresent || isOtInvalid || curIsShiftComplete);
+      if(!curIsPresent){
+        btn.innerHTML = '<i class="fas fa-user-slash"></i> Attendance Required to Log';
+        btn.style.opacity = '0.6';
+        btn.style.cursor = 'not-allowed';
+      } else {
+        btn.innerHTML = '<i class="fas fa-paper-plane"></i> Submit for Approval';
+        btn.style.opacity = '';
+        btn.style.cursor = '';
+      }
     }
     const bar = document.getElementById('hoursProgressBar');
-    if(bar) bar.style.width = Math.min(100,((totalSubmitted+total)/baseLimit)*100)+'%';
+    if(bar) bar.style.width = Math.min(100,((curTotalSubmitted+total)/curBaseLimit)*100)+'%';
   };
 
   function createHourStepper(initial, onChange){
@@ -9412,8 +9493,12 @@ let rows = _workerDraftRows;  // ← reference, not a copy — mutations update 
     refreshTables();
 
     document.getElementById('submitMultiBtn')?.addEventListener('click', async ()=>{
-      if(!isPresent){ showToast('You are marked ABSENT. Cannot log hours.','error'); return; }
       const btn = document.getElementById('submitMultiBtn');
+      if(!isWorkerPresent(worker.name, today)){
+        showToast('You are marked ABSENT for today. Contact Admin to mark attendance before logging.', 'error');
+        if(btn){ btn.disabled=false; btn.innerHTML='<i class="fas fa-user-slash"></i> Attendance Required to Log'; }
+        return;
+      }
       if(btn){
         if(btn.disabled) return;
         btn.disabled = true;
@@ -9561,13 +9646,29 @@ function _rtRefreshUI(label){
 // ── Soft refresh: update stats panels without touching the entry form ──
 function _rtWorkerSoftRefresh(){
   const worker    = loggedInWorker;
+  if(!worker) return;
   const today     = getToday();
   const booked    = getWorkerDailyHours(worker.name, today);
   const remaining = getRemainingHours(worker.name, today);
+  const isPresent = isWorkerPresent(worker.name, today);
 
   // Update hours progress bar if it exists on screen
   const bar = document.getElementById('hoursProgressBar');
   if (bar) bar.style.width = Math.min(100, (booked / getWorkerBaseLimit(worker.name, today)) * 100) + '%';
+
+  const btn = document.getElementById('submitMultiBtn');
+  if(btn){
+    if(!isPresent){
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-user-slash"></i> Attendance Required to Log';
+      btn.style.opacity = '0.6';
+      btn.style.cursor = 'not-allowed';
+    } else {
+      btn.style.opacity = '';
+      btn.style.cursor = '';
+      btn.innerHTML = '<i class="fas fa-paper-plane"></i> Submit for Approval';
+    }
+  }
 
   // Update Today's Approved panel
   const todayEntries = jobEntries.filter(e => e.workerName === worker.name && e.date === today);
@@ -9715,10 +9816,19 @@ function setupRealtimeSubscriptions(){
 
   if(synced){
     showToast('Synced from server', 'success');
-    // Refresh login page worker list or auto-login if session was saved but waiting for workers data
-    if(currentMode === 'worker' && !loggedInWorker){
-      const autoLoggedInAfterSync = restoreAuthSession();
-      if(!autoLoggedInAfterSync) renderWorkerLogin();
+    if(currentMode === 'worker'){
+      if(!loggedInWorker){
+        const autoLoggedInAfterSync = restoreAuthSession();
+        if(!autoLoggedInAfterSync) renderWorkerLogin();
+      } else {
+        if(_workerTab === 'log' && _workerDraftRows && _workerHasDirtyRows()){
+          _rtWorkerSoftRefresh();
+        } else {
+          renderWorkerDashboard();
+        }
+      }
+    } else if(currentMode === 'admin' && adminLoggedIn){
+      renderAdminSection(activeAdminSection);
     }
   }
 
