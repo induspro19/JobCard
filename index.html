@@ -3103,7 +3103,11 @@ async function cloudUpsertWorkers(){
 
 async function cloudUpsertProjects(){
   if(!isCloudReady()) return;
-  const payload = (projects||[]).filter(p=>p&&p.name).map(p=>({name:_jcUpper(p.name),active:p.active!==false}));
+  const payload = (projects||[]).filter(p=>p&&p.name).map(p=>({
+    id: String(p.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('proj_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7)))),
+    name: _jcUpper(p.name),
+    active: p.active !== false
+  }));
   try{
     const res = await sb().from('jc_projects').upsert(payload,{onConflict:'name'});
     if(res?.error) throw res.error;
@@ -3455,7 +3459,7 @@ async function rejectPendingEntry(pendingId){
 }
 
 async function adminAddEntry(wn,proj,mainAct,subAct,hrs,date,detail){ return await addEntry(wn,proj,mainAct,subAct,hrs,date,detail); }
-function getActiveProjects(){ return projects.filter(p=>p.active===true); }
+function getActiveProjects(){ return projects.filter(p=>p.active !== false && p.active !== 'false'); }
 function getUnlockedActivities(projectName){ return activities.filter(a=>{ if(a.locked)return false; if(projectName&&a.lockedProjects&&a.lockedProjects.includes(projectName))return false; return true; }); }
 function getProjectHoursSummary(){ const map={}; jobEntries.forEach(e=>{ const p=e.projectName||"Unknown"; if(!map[p])map[p]={total:0,activities:{}}; map[p].total+=(e.hours||0); const act=e.activity||"Unknown"; if(!map[p].activities[act])map[p].activities[act]={total:0,subs:{}}; map[p].activities[act].total+=(e.hours||0); const sub=e.subActivity||'(No Sub)'; if(!map[p].activities[act].subs[sub])map[p].activities[act].subs[sub]=0; map[p].activities[act].subs[sub]+=(e.hours||0); }); return map; }
 
@@ -7182,7 +7186,8 @@ function attachSectionEvents(section){
     document.getElementById('addProjectBtn')?.addEventListener('click', async ()=>{
       const nm = document.getElementById('newProjName').value.trim();
       if(!nm){ showToast('Enter a project name','error'); return; }
-      projects.push({id:Date.now(),name:nm,active:true});
+      const newId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('proj_' + Date.now());
+      projects.push({id:newId,name:nm,active:true});
       saveProjects();
       await cloudUpsertProjects();
       showToast('Project added');
@@ -7191,12 +7196,34 @@ function attachSectionEvents(section){
 
     document.querySelectorAll('.finishProjBtn').forEach(btn=>btn.addEventListener('click', async ()=>{
       const p = projects.find(pr=>String(pr.id)===String(btn.dataset.id));
-      if(p){ p.active=false; saveProjects(); await cloudUpsertProjects(); renderAdminSection('projects'); }
+      if(p){
+        p.active = false;
+        saveProjects();
+        if(isCloudReady()){
+          try {
+            await sb().from('jc_projects').update({ active: false }).eq('name', _jcUpper(p.name));
+          } catch(e) { _jcHandleCloudError(e,'finishProject'); }
+        }
+        await cloudUpsertProjects();
+        showToast(`Project "${p.name}" moved to Finished`, 'info');
+        renderAdminSection('projects');
+      }
     }));
 
     document.querySelectorAll('.reactivateProjBtn').forEach(btn=>btn.addEventListener('click', async ()=>{
       const p = projects.find(pr=>String(pr.id)===String(btn.dataset.id));
-      if(p){ p.active=true; saveProjects(); await cloudUpsertProjects(); renderAdminSection('projects'); }
+      if(p){
+        p.active = true;
+        saveProjects();
+        if(isCloudReady()){
+          try {
+            await sb().from('jc_projects').update({ active: true }).eq('name', _jcUpper(p.name));
+          } catch(e) { _jcHandleCloudError(e,'reactivateProject'); }
+        }
+        await cloudUpsertProjects();
+        showToast(`Project "${p.name}" reactivated!`, 'success');
+        renderAdminSection('projects');
+      }
     }));
 
     document.querySelectorAll('.deleteProjBtn').forEach(btn=>btn.addEventListener('click', async ()=>{
