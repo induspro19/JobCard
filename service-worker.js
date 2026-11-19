@@ -1,4 +1,4 @@
-const CACHE_NAME = 'indus-jobcard-v3.0.26';
+const CACHE_NAME = 'indus-jobcard-v3.0.27';
 
 // Core static assets to cache for offline application load
 const STATIC_ASSETS = [

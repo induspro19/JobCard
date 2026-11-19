@@ -3128,7 +3128,7 @@ async function cloudUpsertActivities(){
 }
 
 async function cloudUpsertAttendanceForDate(dateStr){
-  if(!isCloudReady()) return;
+  if(!isCloudReady()) return false;
   const d = dateStr || getToday();
   const att   = getAttendanceMap()[d]    || {};
   const ot    = getOTMap()[d]            || {};
@@ -3154,11 +3154,15 @@ async function cloudUpsertAttendanceForDate(dateStr){
         const fallback = payload.map(({half_day, half_day_hours, job_allocations, ot_hours, ...rest})=>rest);
         const res2 = await sb().from('jc_attendance').upsert(fallback,{onConflict:'log_date,worker_name'});
         if(res2?.error) throw res2.error;
-        return;
+        return true;
       }
       throw res.error;
     }
-  }catch(e){ _jcHandleCloudError(e,'cloudUpsertAttendanceForDate'); }
+    return true;
+  }catch(e){
+    _jcHandleCloudError(e,'cloudUpsertAttendanceForDate');
+    return false;
+  }
 }
 
 function getAttendanceMap(){ return JSON.parse(localStorage.getItem(STORAGE_ATTENDANCE)||"{}"); }
@@ -6540,7 +6544,8 @@ function buildAttendance(selDate){
         <div class="date-bar section-gap" style="flex-wrap:wrap;gap:10px;">
           <label><i class="fas fa-calendar"></i> Date</label>
           <input type="date" id="adminDatePicker" class="inp" value="${selDate}" style="width:auto;">
-          <button id="refreshAdminDate" class="btn btn-ghost btn-sm"><i class="fas fa-sync"></i>Load</button>
+          <button id="refreshAdminDate" class="btn btn-ghost btn-sm" title="Reload attendance from local & cloud for selected date"><i class="fas fa-sync"></i>Load</button>
+          <button id="syncAttCloudBtn" class="btn btn-ghost btn-sm" style="color:var(--blue);border-color:rgba(37,99,235,0.3);" title="Sync latest attendance from Cloud / other PCs"><i class="fas fa-arrows-rotate"></i> Cloud Sync</button>
           <span class="badge-count" style="font-size:0.68rem;padding:4px 9px;" title="Workers with allocated project & activity today">
             <i class="fas fa-briefcase" style="color:var(--fire);margin-right:4px;"></i>Allocated: ${allocatedCount}/${workers.length}
           </span>
@@ -7292,12 +7297,43 @@ function attachSectionEvents(section){
 
   // ── ATTENDANCE ───────────────────────────────────────────────
   if(section === 'attendance'){
-    document.getElementById('refreshAdminDate')?.addEventListener('click', ()=>{
-      const nd = document.getElementById('adminDatePicker').value;
+    document.getElementById('refreshAdminDate')?.addEventListener('click', async ()=>{
+      const btn = document.getElementById('refreshAdminDate');
+      if(btn){ btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+      if(isCloudReady()){
+        await loadFromCloud();
+      }
+      const nd = document.getElementById('adminDatePicker')?.value || _attSelectedDate;
       if(nd){
-        document.getElementById('appRoot').querySelector('.page-body').innerHTML = buildAttendance(nd);
+        const root = document.getElementById('appRoot')?.querySelector('.page-body');
+        if(root){
+          root.innerHTML = buildAttendance(nd);
+          attachSectionEvents('attendance');
+        }
+      }
+      if(btn){ btn.disabled = false; btn.innerHTML = '<i class="fas fa-sync"></i>Load'; }
+    });
+
+    document.getElementById('syncAttCloudBtn')?.addEventListener('click', async ()=>{
+      const btn = document.getElementById('syncAttCloudBtn');
+      if(btn){ btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Syncing…'; }
+      let ok = false;
+      if(isCloudReady()){
+        window.__jcCloudDisabled = false;
+        ok = await loadFromCloud();
+      }
+      const nd = document.getElementById('adminDatePicker')?.value || _attSelectedDate;
+      const root = document.getElementById('appRoot')?.querySelector('.page-body');
+      if(root){
+        root.innerHTML = buildAttendance(nd);
         attachSectionEvents('attendance');
       }
+      if(ok){
+        showToast('Attendance & overtime reloaded from cloud!', 'success');
+      } else {
+        showToast('Cloud sync failed or offline', 'warning');
+      }
+      if(btn){ btn.disabled = false; btn.innerHTML = '<i class="fas fa-arrows-rotate"></i> Cloud Sync'; }
     });
 
     // Wire up OT +/- steppers
@@ -7331,6 +7367,8 @@ function attachSectionEvents(section){
     });
 
     document.getElementById('saveAttendBtn')?.addEventListener('click', async ()=>{
+      const btn = document.getElementById('saveAttendBtn');
+      if(btn){ btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Saving…'; }
       document.querySelectorAll('.att-chk').forEach(ch=>setAttendance(_attSelectedDate,ch.dataset.worker,ch.checked));
       document.querySelectorAll('.ot-chk').forEach(ch=>{
         const wKey = ch.dataset.worker;
@@ -7350,8 +7388,13 @@ function attachSectionEvents(section){
           setHalfDayHrs(_attSelectedDate, wKey, hrs);
         }
       });
-      await cloudUpsertAttendanceForDate(_attSelectedDate);
-      showToast('Attendance & Overtime saved');
+      const ok = await cloudUpsertAttendanceForDate(_attSelectedDate);
+      if(btn){ btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i>Save Attendance'; }
+      if(ok){
+        showToast('Attendance & Overtime saved & synced to cloud!', 'success');
+      } else {
+        showToast('Saved locally, but cloud sync failed. Please check internet or refresh.', 'warning');
+      }
     });
   }
 
