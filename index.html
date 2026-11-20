@@ -3025,6 +3025,31 @@ async function loadFromCloud(){
           uniquePendingMap.set(item.id, item);
         }
       });
+      // Retain and back-sync any local pending entries that were not yet uploaded to cloud
+      (pendingEntries || []).forEach(local => {
+        if(local && local.status === 'pending'){
+          const key = `${(local.workerName||'').trim().toLowerCase()}|${(local.projectName||'').trim().toLowerCase()}|${(local.activity||'').trim().toLowerCase()}|${(local.subActivity||'').trim().toLowerCase()}|${local.date}|${(Number(local.hours)||0).toFixed(2)}`;
+          if(!uniquePendingMap.has(key) && !uniquePendingMap.has(local.id)){
+            uniquePendingMap.set(local.id, local);
+            if(isCloudReady()){
+              sb().from('jc_pending_entries').insert({
+                id: String(local.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('pnd_' + Date.now()))),
+                entry_date: local.date,
+                worker_name: _jcUpper(local.workerName),
+                project_name: _jcUpper(local.projectName),
+                activity_name: _jcUpper(local.activity),
+                sub_activity: local.subActivity || '',
+                hours: Number(local.hours || 0),
+                remark: local.detailReason || '',
+                status: 'pending',
+                submitted_at: local.submittedAt || new Date().toISOString()
+              }).then(res => {
+                if(!res?.error) console.log('[JC] Back-synced local pending entry:', local.id);
+              }).catch(()=>{});
+            }
+          }
+        }
+      });
       pendingEntries = Array.from(uniquePendingMap.values());
       savePending();
     }
@@ -3320,16 +3345,23 @@ function getRemainingHours(worker,date){
 
 async function addEntry(wn,proj,mainAct,subAct,hrs,date,detail){
   if(!wn||!proj||!mainAct||!hrs||hrs<=0) return false;
-  const localId = 'loc_'+Date.now()+'_'+Math.floor(Math.random()*100000);
-  const entry = {id:localId,workerName:wn.trim(),projectName:proj.trim(),activity:mainAct,subActivity:subAct||"",hours:parseFloat(hrs),date,detailReason:detail||""};
+  const newId = (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('loc_'+Date.now()+'_'+Math.floor(Math.random()*100000)));
+  const entry = {id:newId,workerName:wn.trim(),projectName:proj.trim(),activity:mainAct,subActivity:subAct||"",hours:parseFloat(hrs),date,detailReason:detail||""};
   jobEntries.push(entry);
   saveEntries();
   if(isCloudReady()){
     try{
       const res = await sb().from('jc_entries')
-        .insert({entry_date:entry.date,worker_name:_jcUpper(entry.workerName),project_name:_jcUpper(entry.projectName),
-          activity_name:_jcUpper(entry.activity),sub_activity:_jcUpper(entry.subActivity||''),
-          hours:Number(entry.hours||0),remark:entry.detailReason||''})
+        .insert({
+          id: entry.id,
+          entry_date:entry.date,
+          worker_name:_jcUpper(entry.workerName),
+          project_name:_jcUpper(entry.projectName),
+          activity_name:_jcUpper(entry.activity),
+          sub_activity:_jcUpper(entry.subActivity||''),
+          hours:Number(entry.hours||0),
+          remark:entry.detailReason||''
+        })
         .select('id').single();
       if(res?.error) throw res.error;
       if(res?.data?.id){ entry.id = res.data.id; saveEntries(); }
@@ -3373,7 +3405,7 @@ async function submitPendingEntry(wn,proj,mainAct,subAct,hrs,date,detail){
     return true;
   }
 
-  const localId = 'pnd_'+Date.now()+'_'+Math.floor(Math.random()*100000);
+  const localId = (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('pnd_'+Date.now()+'_'+Math.floor(Math.random()*100000)));
   const entry = {id:localId,workerName:normWn,projectName:normProj,activity:normAct,subActivity:normSub,
     hours:normHrs,date,detailReason:detail||"",status:'pending',submittedAt:new Date().toISOString()};
   pendingEntries.push(entry);
@@ -3401,6 +3433,7 @@ async function submitPendingEntry(wn,proj,mainAct,subAct,hrs,date,detail){
       }
 
       const payload = {
+        id: entry.id,
         entry_date: entry.date,
         worker_name: _jcUpper(entry.workerName),
         project_name: _jcUpper(entry.projectName),
@@ -5072,6 +5105,11 @@ function adminNav(el, section){
   if(targetEl) targetEl.classList.add('active');
   activeAdminSection = section;
   renderAdminSection(section);
+  if(section === 'approvalqueue' && isCloudReady()){
+    loadFromCloud().then(() => {
+      if(activeAdminSection === 'approvalqueue') renderAdminSection('approvalqueue');
+    }).catch(()=>{});
+  }
   // Close sidebar on mobile after navigation
   if(window.innerWidth <= 768) closeMobileSidebar();
 }
@@ -7480,6 +7518,7 @@ function attachSectionEvents(section){
         await loadFromCloud();
       }
       renderAdminSection('approvalqueue');
+      showToast('Approval Queue synced with server!', 'success');
     });
 
     document.getElementById('approveAllBtn')?.addEventListener('click', async ()=>{
@@ -9935,13 +9974,31 @@ function setupRealtimeSubscriptions(){
 (function initPWAManager(){
   let deferredInstallPrompt = null;
   let newWorker = null;
+  const CURRENT_APP_VERSION = '3.0.30';
 
-  // 1. Register Service Worker
+  // Helper to apply update immediately or show banner if actively filling form
+  function applyServiceWorkerUpdate(workerInstance) {
+    if (typeof _workerHasDirtyRows === 'function' && _workerHasDirtyRows()) {
+      showPWAUpdateBanner(workerInstance);
+    } else {
+      if (workerInstance) {
+        showToast('App updating to latest version...', 'info');
+        workerInstance.postMessage({ type: 'SKIP_WAITING' });
+      }
+    }
+  }
+
+  // 1. Register Service Worker with { updateViaCache: 'none' } for mobile devices
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function() {
-      navigator.serviceWorker.register('./service-worker.js')
+      navigator.serviceWorker.register('./service-worker.js', { updateViaCache: 'none' })
         .then(function(registration) {
           console.log('[PWA] Service Worker registered with scope:', registration.scope);
+
+          // Check if there is already an updated worker waiting
+          if (registration.waiting) {
+            applyServiceWorkerUpdate(registration.waiting);
+          }
 
           // Detect new version updates
           registration.addEventListener('updatefound', function() {
@@ -9949,10 +10006,32 @@ function setupRealtimeSubscriptions(){
             if (!newWorker) return;
             newWorker.addEventListener('statechange', function() {
               if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                showPWAUpdateBanner();
+                applyServiceWorkerUpdate(newWorker);
               }
             });
           });
+
+          // Proactive update checks for mobile devices (on resume, unlock, focus, reconnect)
+          document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible') {
+              registration.update().catch(()=>{});
+              checkRemoteVersion();
+            }
+          });
+          window.addEventListener('focus', function() {
+            registration.update().catch(()=>{});
+          });
+          window.addEventListener('online', function() {
+            registration.update().catch(()=>{});
+            checkRemoteVersion();
+          });
+          // Periodic background check every 10 minutes
+          setInterval(function() {
+            if (navigator.onLine) {
+              registration.update().catch(()=>{});
+              checkRemoteVersion();
+            }
+          }, 10 * 60 * 1000);
         })
         .catch(function(err) {
           console.warn('[PWA] Service Worker registration failed:', err);
@@ -9968,8 +10047,41 @@ function setupRealtimeSubscriptions(){
     });
   }
 
-  // 2. Auto-Update Banner UI
-  function showPWAUpdateBanner() {
+  // 2. Direct Version Check for Mobile (Auto-detects GitHub release and updates immediately)
+  async function checkRemoteVersion() {
+    if (!navigator.onLine) return;
+    try {
+      const res = await fetch('./version.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && data.version && data.version !== CURRENT_APP_VERSION) {
+        console.log('[PWA] Newer version detected on server:', data.version, 'Current:', CURRENT_APP_VERSION);
+        if (typeof _workerHasDirtyRows === 'function' && _workerHasDirtyRows()) {
+          showPWAUpdateBanner();
+        } else {
+          showToast('App updating to latest version (' + data.version + ')...', 'info');
+          if ('caches' in window) {
+            try {
+              const keys = await caches.keys();
+              await Promise.all(keys.map(k => caches.delete(k)));
+            } catch(_e){}
+          }
+          if ('serviceWorker' in navigator) {
+            try {
+              const reg = await navigator.serviceWorker.ready;
+              await reg.update();
+            } catch(_e){}
+          }
+          setTimeout(() => { window.location.reload(true); }, 600);
+        }
+      }
+    } catch(_e){}
+  }
+  setTimeout(checkRemoteVersion, 2500);
+
+  // 3. Auto-Update Banner UI (shown only when worker is actively typing an entry)
+  function showPWAUpdateBanner(workerInstance) {
+    const targetWorker = workerInstance || newWorker;
     const old = document.getElementById('pwaUpdateBanner');
     if (old) old.remove();
 
@@ -9985,15 +10097,16 @@ function setupRealtimeSubscriptions(){
     banner.innerHTML = `
       <i class="fas fa-arrows-rotate fa-spin" style="color:var(--fire, #FF4500);font-size:1.1rem;"></i>
       <div style="flex:1;">
-        <div style="font-weight:700;">New Version Available</div>
-        <div style="font-size:0.7rem;color:var(--text-2, #8B92B8);">Update to get the latest features.</div>
+        <div style="font-weight:700;">New Version Ready</div>
+        <div style="font-size:0.7rem;color:var(--text-2, #8B92B8);">Finish your entry or update now.</div>
       </div>
       <button id="pwaUpdateNowBtn" class="btn btn-fire btn-xs" style="padding:6px 12px;font-size:0.72rem;">Update Now</button>
     `;
     document.body.appendChild(banner);
 
     document.getElementById('pwaUpdateNowBtn')?.addEventListener('click', function() {
-      if (newWorker) newWorker.postMessage({ type: 'SKIP_WAITING' });
+      if (targetWorker) targetWorker.postMessage({ type: 'SKIP_WAITING' });
+      else window.location.reload(true);
     });
   }
 

@@ -1,9 +1,10 @@
-const CACHE_NAME = 'indus-jobcard-v3.0.28';
+const CACHE_NAME = 'indus-jobcard-v3.0.30';
 
 // Core static assets to cache for offline application load
 const STATIC_ASSETS = [
   './',
   './index.html',
+  './version.json',
   './manifest.json',
   './icon.png',
   './icon.svg',
@@ -79,10 +80,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-First for main HTML page
+  // Always fetch version.json fresh from network (no-store) for instant update detection
+  if (url.pathname.endsWith('version.json')) {
+    event.respondWith(
+      fetch(req, { cache: 'no-store' }).catch(() => caches.match('./version.json'))
+    );
+    return;
+  }
+
+  // Network-First with cache-busting validation for main HTML page
   if (req.mode === 'navigate' || url.pathname.endsWith('index.html') || url.pathname === '/') {
     event.respondWith(
-      fetch(req)
+      fetch(req, { cache: 'no-cache' })
         .then((response) => {
           if (response && response.status === 200) {
             const copy = response.clone();
